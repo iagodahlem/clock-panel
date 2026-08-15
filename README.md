@@ -1,6 +1,6 @@
 # clock-panel
 
-A panel of small analog clocks whose hands align to display the time. An homage to ClockClock 24 by Humans since 1982.
+A panel of small analog clocks whose hands align to display the time. Inspired by ClockClock 24 by Humans since 1982.
 
 ## Status
 

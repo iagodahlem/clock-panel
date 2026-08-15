@@ -69,7 +69,11 @@ export function resolveTargetAngle(
   extraTurns = 0,
 ): number {
   const delta = resolveDelta(current, desiredAngle, direction)
-  const turnSign = delta < 0 ? -1 : 1
+  // A zero delta (already at the desired visual angle) carries no sign of
+  // its own, so extraTurns would otherwise always sweep clockwise -- fall
+  // back to the explicit direction instead, defaulting to clockwise only
+  // for 'shortest'/'clockwise' where there is no counterclockwise ask.
+  const turnSign = delta !== 0 ? Math.sign(delta) : direction === 'counterclockwise' ? -1 : 1
   return current + delta + extraTurns * TAU * turnSign
 }
 

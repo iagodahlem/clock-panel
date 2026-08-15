@@ -58,15 +58,20 @@ const DIRECTIONS: readonly Direction[] = ['clockwise', 'counterclockwise', 'shor
 const hourHand = new RotationSpring(Math.random() * Math.PI * 2)
 const minuteHand = new RotationSpring(Math.random() * Math.PI * 2)
 
+/** Usually a fresh random angle, but occasionally the hand's own current angle -- so a zero-delta target (a same-angle multi-turn sweep) gets exercised too, not just fresh ones. */
+function nextTargetAngle(currentAngle: number): number {
+  return Math.random() < 1 / 6 ? currentAngle : Math.random() * Math.PI * 2
+}
+
 /** Sends both hands to a new random pose, using a varied direction and an occasional multi-turn sweep so the primitive's range is visible. */
 function randomPose(): void {
-  hourHand.rotateTo(Math.random() * Math.PI * 2, {
+  hourHand.rotateTo(nextTargetAngle(hourHand.currentAngle), {
     direction: pickRandom(DIRECTIONS),
     extraTurns: Math.floor(Math.random() * 2),
     spring: { dampingRatio: 1, response: 0.6 },
     reducedMotion,
   })
-  minuteHand.rotateTo(Math.random() * Math.PI * 2, {
+  minuteHand.rotateTo(nextTargetAngle(minuteHand.currentAngle), {
     direction: pickRandom(DIRECTIONS),
     extraTurns: Math.floor(Math.random() * 3),
     spring: { dampingRatio: 0.86, response: 0.5 },
