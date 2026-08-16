@@ -46,7 +46,14 @@ function wrapPi(angle: number): number {
   return wrapped === -Math.PI ? Math.PI : wrapped
 }
 
-function resolveDelta(current: number, desired: number, direction: Direction): number {
+/**
+ * The signed angular distance from `current` to `desired` in the given
+ * rotational sense. Exported so choreography.ts can size a hand's sweep
+ * before deciding whether it is short enough to need padding with an
+ * extra turn -- the same resolution `rotateTo` itself uses to compute the
+ * unbounded target angle.
+ */
+export function resolveDelta(current: number, desired: number, direction: Direction): number {
   if (direction === 'shortest') return wrapPi(desired - current)
 
   // Positive-going (clockwise) distance, normalized into [0, TAU).
