@@ -1,16 +1,27 @@
 // App shell: a devicePixelRatio-aware, full-viewport canvas that renders
 // the 24-clock time panel. Drives 48 RotationSprings (2 hands x 6 clocks
-// x 4 digits) -- one per hand -- so a future minute-change choreography
-// pass has springs already in place to retarget, but for now there is no
-// choreography: on load, and on every retarget, springs jump straight to
-// their new pose (see `initialPoseSprings` and the reduced-motion default
-// below). The panel keeps ticking on its own by polling the clock once a
-// second and retargeting whenever the displayed minute changes.
+// x 4 digits) -- one per hand. On load, springs jump straight to their
+// initial pose (see the `springs` construction below). From then on, the
+// panel keeps ticking on its own by polling the clock once a second and,
+// whenever the displayed minute changes, running the digit-level
+// choreography from choreography.ts on whichever digits actually changed
+// -- direction, extra-turn padding, and panel-column stagger -- instead
+// of snapping straight to the new pose. `prefers-reduced-motion` bypasses
+// choreography entirely and retargets directly with `{ reducedMotion:
+// true }`, which is what turns it into a short, direct move.
 
 import { drawPanel, type PanelPose } from './panel'
 import { digitPose, type Digit, type DigitPose } from './font'
 import { RotationSpring } from './animate'
 import type { ClockHandAngles } from './clock'
+import {
+  planDigitTransition,
+  defaultChoreography,
+  TransitionScheduler,
+  type ClockStep,
+  type DigitStep,
+  type ScheduledHand,
+} from './choreography'
 
 function requireCanvas(): HTMLCanvasElement {
   const el = document.querySelector<HTMLCanvasElement>('#app')
@@ -66,13 +77,14 @@ function assertDigit(value: number): Digit {
 }
 
 /**
- * Parses a `?time=HHMM` or `?time=HH:MM` query override into 4 raw
+ * Parses a `?<name>=HHMM` or `?<name>=HH:MM` query param into 4 raw
  * digits. Deliberately does not validate the result as a real time --
- * this is a QA affordance for reviewing the digit font, so any 4 digits
- * (`?time=89:06`) must render, not just plausible clock times.
+ * this is a QA affordance for reviewing the digit font and the
+ * choreography, so any 4 digits (`?time=89:06`) must render, not just
+ * plausible clock times.
  */
-function parseTimeOverride(): DigitTuple | null {
-  const raw = new URLSearchParams(window.location.search).get('time')
+function parseDigitsParam(name: string): DigitTuple | null {
+  const raw = new URLSearchParams(window.location.search).get(name)
   if (raw === null) return null
   const digitsOnly = raw.replace(/:/g, '')
   if (!/^\d{4}$/.test(digitsOnly)) return null
@@ -82,6 +94,21 @@ function parseTimeOverride(): DigitTuple | null {
     digitsOnly.charCodeAt(2) - CHAR_CODE_ZERO,
     digitsOnly.charCodeAt(3) - CHAR_CODE_ZERO,
   ]
+}
+
+/** `?time=HHMM` -- overrides the displayed time with a fixed snapshot; never ticks. */
+function parseTimeOverride(): DigitTuple | null {
+  return parseDigitsParam('time')
+}
+
+/**
+ * `?to=HHMM` -- paired with `?time=`, gives the choreography a second
+ * anchor to transition to on demand (see the key/click listener below),
+ * so a transition can be watched without waiting for a real minute to
+ * roll over. Ignored when `?time=` is absent.
+ */
+function parseToOverride(): DigitTuple | null {
+  return parseDigitsParam('to')
 }
 
 /** The current local time as 4 digits, 24-hour HH:MM. */
@@ -97,6 +124,7 @@ function liveTimeDigits(now: Date): DigitTuple {
 }
 
 const timeOverride = parseTimeOverride()
+const toOverride = timeOverride !== null ? parseToOverride() : null
 
 function currentDigits(): DigitTuple {
   return timeOverride ?? liveTimeDigits(new Date())
@@ -164,20 +192,120 @@ const springs: readonly [DigitSprings, DigitSprings, DigitSprings, DigitSprings]
   digitSprings(digitPose(assertDigit(d3))),
 ]
 
-// Live clock only: re-check once a second and retarget whenever the
+// --- Minute-change choreography: plans and stages the staggered sweep
+// for whichever digits actually changed, then hands it to the scheduler
+// to fire hand-by-hand against the rAF clock. See choreography.ts. ---
+
+const scheduler = new TransitionScheduler()
+
+function handSteps(spring: ClockSprings, step: ClockStep): readonly [ScheduledHand, ScheduledHand] {
+  return [
+    { spring: spring.hour, desiredAngle: step.hour.desiredAngle, options: step.hour.options, delayMs: step.hour.delayMs },
+    { spring: spring.minute, desiredAngle: step.minute.desiredAngle, options: step.minute.options, delayMs: step.minute.delayMs },
+  ]
+}
+
+function collectDigitHands(springs: DigitSprings, plan: DigitStep): ScheduledHand[] {
+  const [s0, s1, s2, s3, s4, s5] = springs
+  const [p0, p1, p2, p3, p4, p5] = plan
+  return [
+    ...handSteps(s0, p0),
+    ...handSteps(s1, p1),
+    ...handSteps(s2, p2),
+    ...handSteps(s3, p3),
+    ...handSteps(s4, p4),
+    ...handSteps(s5, p5),
+  ]
+}
+
+/**
+ * Plans and collects one digit's hands, ranked at `columnGroup` among the
+ * digits actually transitioning this run (see planDigitTransition), or
+ * nothing if this digit's value did not change.
+ */
+function collectChangedHands(
+  columnGroup: number,
+  previousDigit: number,
+  nextDigit: number,
+  digitSprings: DigitSprings,
+): ScheduledHand[] {
+  if (previousDigit === nextDigit) return []
+  const current = digitSpringAngles(digitSprings)
+  const target = digitPose(assertDigit(nextDigit))
+  const plan = planDigitTransition(current, target, columnGroup, defaultChoreography)
+  return collectDigitHands(digitSprings, plan)
+}
+
+/**
+ * Transitions the panel from whatever it is currently showing to
+ * `nextDigits`, touching only the digits whose value actually changed.
+ * Safe to call again before a previous transition has finished -- the
+ * scheduler and the springs themselves are both interruption-safe, so a
+ * transition that lands mid-flight retargets cleanly instead of snapping.
+ */
+function runTransition(nextDigits: DigitTuple): void {
+  const previousDigits = lastDigits
+  lastDigits = nextDigits
+  const [p0, p1, p2, p3] = previousDigits
+  const [n0, n1, n2, n3] = nextDigits
+  const [s0, s1, s2, s3] = springs
+
+  if (reducedMotion) {
+    if (n0 !== p0) retargetDigit(s0, digitPose(assertDigit(n0)))
+    if (n1 !== p1) retargetDigit(s1, digitPose(assertDigit(n1)))
+    if (n2 !== p2) retargetDigit(s2, digitPose(assertDigit(n2)))
+    if (n3 !== p3) retargetDigit(s3, digitPose(assertDigit(n3)))
+    return
+  }
+
+  // Rank only the digits that changed, left to right -- the stagger then
+  // ripples across whichever digits are actually moving, so the common
+  // case (only the last digit ticks over) starts moving immediately
+  // instead of waiting out a delay sized for the panel columns it never
+  // occupied.
+  let columnGroup = 0
+  const hands: ScheduledHand[] = []
+  if (n0 !== p0) {
+    hands.push(...collectChangedHands(columnGroup, p0, n0, s0))
+    columnGroup++
+  }
+  if (n1 !== p1) {
+    hands.push(...collectChangedHands(columnGroup, p1, n1, s1))
+    columnGroup++
+  }
+  if (n2 !== p2) {
+    hands.push(...collectChangedHands(columnGroup, p2, n2, s2))
+    columnGroup++
+  }
+  if (n3 !== p3) {
+    hands.push(...collectChangedHands(columnGroup, p3, n3, s3))
+  }
+  scheduler.schedule(performance.now(), hands)
+}
+
+// Live clock only: re-check once a second and transition whenever the
 // displayed minute actually changes. The ?time= override is a fixed QA
-// snapshot -- it never ticks.
+// snapshot -- it never ticks on its own.
 if (timeOverride === null) {
   setInterval(() => {
     const nextDigits = currentDigits()
     if (nextDigits.every((digit, index) => digit === lastDigits[index])) return
-    lastDigits = nextDigits
-    const [n0, n1, n2, n3] = nextDigits
-    retargetDigit(springs[0], digitPose(assertDigit(n0)))
-    retargetDigit(springs[1], digitPose(assertDigit(n1)))
-    retargetDigit(springs[2], digitPose(assertDigit(n2)))
-    retargetDigit(springs[3], digitPose(assertDigit(n3)))
+    runTransition(nextDigits)
   }, 1000)
+}
+
+// QA affordance: with both ?time= and ?to= set, any key press or click
+// transitions the panel between the two, toggling back and forth, so the
+// choreography can be watched on demand instead of waiting for a real
+// minute to roll over.
+if (timeOverride !== null && toOverride !== null) {
+  let showingTarget = false
+  const triggerTransition = (): void => {
+    showingTarget = !showingTarget
+    runTransition(showingTarget ? toOverride : timeOverride)
+  }
+  window.addEventListener('keydown', triggerTransition)
+  window.addEventListener('click', triggerTransition)
 }
 
 let lastTime = performance.now()
@@ -185,6 +313,8 @@ let lastTime = performance.now()
 function frame(now: number): void {
   const dt = (now - lastTime) / 1000
   lastTime = now
+
+  scheduler.tick(now)
 
   for (const digit of springs) {
     for (const clock of digit) {

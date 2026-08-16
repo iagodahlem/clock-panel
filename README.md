@@ -4,7 +4,7 @@ A panel of small analog clocks whose hands align to display the time. Inspired b
 
 ## Status
 
-Early. The panel now renders the current local time as 24 clocks (4 digits, HH:MM, 2x3 clocks each), fit to and centered on the canvas at any size. There's no minute-change choreography yet -- hands jump straight to their new pose when the time changes.
+Early. The panel renders the current local time as 24 clocks (4 digits, HH:MM, 2x3 clocks each), fit to and centered on the canvas at any size. On a minute change, the hands that need to move sweep into their new pose with a staggered, directional choreography instead of jumping straight there.
 
 ## Running it
 
@@ -13,7 +13,7 @@ pnpm install
 pnpm dev
 ```
 
-Open the URL it prints. The panel shows the current local time and keeps ticking as the minute changes. Append `?time=HHMM` or `?time=HH:MM` to the URL (e.g. `?time=13:45`) to override the displayed time with any 4 digits, for reviewing the digit font.
+Open the URL it prints. The panel shows the current local time and keeps ticking as the minute changes. Append `?time=HHMM` or `?time=HH:MM` to the URL (e.g. `?time=13:45`) to override the displayed time with any 4 digits, for reviewing the digit font. Add a second `?to=HHMM` alongside it (e.g. `?time=13:45&to=13:46`) and any key press or click transitions the panel between the two, for watching the choreography on demand.
 
 ## Scripts
 
