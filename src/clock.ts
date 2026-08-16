@@ -1,7 +1,8 @@
-// Renders one analog clock face: a subtle rim and two hands as rounded
-// line segments from the center. Draws in logical (CSS) pixels -- the
-// caller is responsible for scaling the canvas context to devicePixelRatio
-// once, up front, so the face stays crisp on any display.
+// Renders one analog clock face: a subtly filled disc lifted off the
+// background with a soft drop shadow, and two hands as rounded line
+// segments from the center. Draws in logical (CSS) pixels -- the caller is
+// responsible for scaling the canvas context to devicePixelRatio once, up
+// front, so the face stays crisp on any display.
 
 const TAU = Math.PI * 2
 
@@ -13,8 +14,13 @@ export interface ClockHandAngles {
 }
 
 export interface ClockStyle {
-  rimColor: string
-  rimWidthRatio: number
+  faceColor: string
+  /** Shadow color under the face. Keep low-opacity -- this is what reads as depth, not a hard edge. */
+  faceShadowColor: string
+  /** Shadow blur radius, as a ratio of the clock radius. */
+  faceShadowBlurRatio: number
+  /** Downward shadow offset, as a ratio of the clock radius. */
+  faceShadowOffsetYRatio: number
   hourHandColor: string
   hourHandLengthRatio: number
   hourHandWidthRatio: number
@@ -24,8 +30,10 @@ export interface ClockStyle {
 }
 
 export const defaultClockStyle: ClockStyle = {
-  rimColor: 'rgba(255, 255, 255, 0.16)',
-  rimWidthRatio: 0.018,
+  faceColor: '#161616',
+  faceShadowColor: 'rgba(0, 0, 0, 0.6)',
+  faceShadowBlurRatio: 0.14,
+  faceShadowOffsetYRatio: 0.09,
   hourHandColor: '#f5f5f5',
   hourHandLengthRatio: 0.5,
   hourHandWidthRatio: 0.05,
@@ -71,12 +79,26 @@ export function drawClock(
 ): void {
   ctx.save()
 
-  const rimWidth = Math.max(1, radius * style.rimWidthRatio)
+  // Face: a subtle fill lifted off the background by a soft drop shadow --
+  // no stroked rim, so the depth reads as physical rather than drawn on.
+  // shadowBlur/shadowOffset are specified here in the same logical (CSS)
+  // pixel space as everything else; canvas shadows are subject to the
+  // current transform, so they stay proportionally correct at any
+  // devicePixelRatio without extra scaling.
   ctx.beginPath()
-  ctx.arc(cx, cy, radius - rimWidth / 2, 0, TAU)
-  ctx.lineWidth = rimWidth
-  ctx.strokeStyle = style.rimColor
-  ctx.stroke()
+  ctx.arc(cx, cy, radius, 0, TAU)
+  ctx.shadowColor = style.faceShadowColor
+  ctx.shadowBlur = radius * style.faceShadowBlurRatio
+  ctx.shadowOffsetX = 0
+  ctx.shadowOffsetY = radius * style.faceShadowOffsetYRatio
+  ctx.fillStyle = style.faceColor
+  ctx.fill()
+
+  // Shadow state is sticky on the context -- clear it so it doesn't bleed
+  // onto the hands, which stay crisp with no shadow of their own.
+  ctx.shadowColor = 'transparent'
+  ctx.shadowBlur = 0
+  ctx.shadowOffsetY = 0
 
   drawHand(
     ctx,
