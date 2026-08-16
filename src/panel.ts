@@ -15,7 +15,7 @@
 // scaled. Multiplying through to real pixels before calling drawClock
 // keeps the clamps meaningful at every canvas size.
 
-import { drawClock, defaultClockStyle, type ClockHandAngles, type ClockStyle } from './clock'
+import { drawClock, defaultClockStyle, type ClockHandAngles } from './clock'
 import type { DigitPose } from './font'
 
 const DIGIT_COUNT = 4 // HH:MM
@@ -102,20 +102,38 @@ function computeFit(canvasWidth: number, canvasHeight: number): Fit {
   }
 }
 
+/**
+ * Draws one clock at the given center/radius/pose. Swapping this function is
+ * how drawPanel's caller picks a whole rendering style (the soft-lit
+ * gradient face in clock.ts, or one of the flat pixel-art renderers in
+ * clock-pixel.ts) without panel.ts knowing anything about style internals --
+ * it only owns layout.
+ */
+export type ClockRenderer = (
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  angles: ClockHandAngles,
+) => void
+
+/** The existing soft-lit gradient renderer, unchanged -- panel.ts's default. */
+const defaultRenderer: ClockRenderer = (ctx, cx, cy, radius, angles) =>
+  drawClock(ctx, cx, cy, radius, angles, defaultClockStyle)
+
 function drawOne(
   ctx: CanvasRenderingContext2D,
   fit: Fit,
   center: ClockCenter,
   angles: ClockHandAngles,
-  style: ClockStyle,
+  renderer: ClockRenderer,
 ): void {
-  drawClock(
+  renderer(
     ctx,
     fit.originX + center.x * fit.scale,
     fit.originY + center.y * fit.scale,
     fit.radius,
     angles,
-    style,
   )
 }
 
@@ -124,16 +142,16 @@ function drawDigit(
   fit: Fit,
   centers: DigitCenters,
   angles: DigitPose,
-  style: ClockStyle,
+  renderer: ClockRenderer,
 ): void {
   const [centerTL, centerTR, centerML, centerMR, centerBL, centerBR] = centers
   const [poseTL, poseTR, poseML, poseMR, poseBL, poseBR] = angles
-  drawOne(ctx, fit, centerTL, poseTL, style)
-  drawOne(ctx, fit, centerTR, poseTR, style)
-  drawOne(ctx, fit, centerML, poseML, style)
-  drawOne(ctx, fit, centerMR, poseMR, style)
-  drawOne(ctx, fit, centerBL, poseBL, style)
-  drawOne(ctx, fit, centerBR, poseBR, style)
+  drawOne(ctx, fit, centerTL, poseTL, renderer)
+  drawOne(ctx, fit, centerTR, poseTR, renderer)
+  drawOne(ctx, fit, centerML, poseML, renderer)
+  drawOne(ctx, fit, centerMR, poseMR, renderer)
+  drawOne(ctx, fit, centerBL, poseBL, renderer)
+  drawOne(ctx, fit, centerBR, poseBR, renderer)
 }
 
 /**
@@ -145,13 +163,13 @@ export function drawPanel(
   canvasWidth: number,
   canvasHeight: number,
   pose: PanelPose,
-  style: ClockStyle = defaultClockStyle,
+  renderer: ClockRenderer = defaultRenderer,
 ): void {
   const fit = computeFit(canvasWidth, canvasHeight)
   const [centers0, centers1, centers2, centers3] = PANEL_CENTERS
   const [pose0, pose1, pose2, pose3] = pose
-  drawDigit(ctx, fit, centers0, pose0, style)
-  drawDigit(ctx, fit, centers1, pose1, style)
-  drawDigit(ctx, fit, centers2, pose2, style)
-  drawDigit(ctx, fit, centers3, pose3, style)
+  drawDigit(ctx, fit, centers0, pose0, renderer)
+  drawDigit(ctx, fit, centers1, pose1, renderer)
+  drawDigit(ctx, fit, centers2, pose2, renderer)
+  drawDigit(ctx, fit, centers3, pose3, renderer)
 }

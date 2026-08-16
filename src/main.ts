@@ -7,10 +7,11 @@
 // below). The panel keeps ticking on its own by polling the clock once a
 // second and retargeting whenever the displayed minute changes.
 
-import { drawPanel, type PanelPose } from './panel'
+import { drawPanel, type ClockRenderer, type PanelPose } from './panel'
 import { digitPose, type Digit, type DigitPose } from './font'
 import { RotationSpring } from './animate'
 import type { ClockHandAngles } from './clock'
+import { drawClockPixel, DRIFT_PALETTE, PIXEL_LIT_PALETTE, PIXEL_PALETTE } from './clock-pixel'
 
 function requireCanvas(): HTMLCanvasElement {
   const el = document.querySelector<HTMLCanvasElement>('#app')
@@ -27,6 +28,58 @@ function requireContext(target: HTMLCanvasElement): CanvasRenderingContext2D {
 const canvas = requireCanvas()
 const ctx = requireContext(canvas)
 
+// --- Style exploration: `?style=` picks a rendering variant. -------------
+// Design exploration only (see clock-pixel.ts) -- not part of the panel's
+// real feature surface yet, so it lives entirely in main.ts's wiring.
+
+type StyleId = 'default' | 'pixel' | 'pixel-lit' | 'drift'
+
+function parseStyleParam(): StyleId {
+  const raw = new URLSearchParams(window.location.search).get('style')
+  if (raw === 'pixel' || raw === 'pixel-lit' || raw === 'drift') return raw
+  return 'default'
+}
+
+const styleId = parseStyleParam()
+
+/** Same light angle as clock.ts's defaultClockStyle, so the lit pixel variants stay comparable to the original's directional light. */
+const LIGHT_ANGLE = -0.4
+
+const pixelRenderer: ClockRenderer | null =
+  styleId === 'pixel'
+    ? (ctx, cx, cy, radius, angles) =>
+        drawClockPixel(ctx, cx, cy, radius, angles, PIXEL_PALETTE, {
+          lit: false,
+          lightAngle: LIGHT_ANGLE,
+        })
+    : styleId === 'pixel-lit'
+      ? (ctx, cx, cy, radius, angles) =>
+          drawClockPixel(ctx, cx, cy, radius, angles, PIXEL_LIT_PALETTE, {
+            lit: true,
+            lightAngle: LIGHT_ANGLE,
+          })
+      : styleId === 'drift'
+        ? (ctx, cx, cy, radius, angles) =>
+            drawClockPixel(ctx, cx, cy, radius, angles, DRIFT_PALETTE, {
+              lit: true,
+              lightAngle: LIGHT_ANGLE,
+            })
+        : null
+
+/**
+ * Offscreen render scale for the pixel styles: the panel draws at 1/6 of its
+ * native size onto `pixelCanvas`, then main.ts's frame loop blits it back up
+ * with `imageSmoothingEnabled = false` -- the same crisp-upscale technique
+ * pixel-drift's own Renderer uses (`imageRendering: 'pixelated'` +
+ * `imageSmoothingEnabled = false`, see `packages/engine/src/render/renderer.ts`)
+ * -- so every edge in the final image is a hard square pixel, not an
+ * anti-aliased curve shrunk down.
+ */
+const PIXEL_SCALE_DIVISOR = 6
+
+const pixelCanvas: HTMLCanvasElement | null = pixelRenderer !== null ? document.createElement('canvas') : null
+const pixelCtx: CanvasRenderingContext2D | null = pixelCanvas !== null ? requireContext(pixelCanvas) : null
+
 let logicalWidth = 0
 let logicalHeight = 0
 
@@ -41,6 +94,14 @@ function resize(): void {
   // Draw in logical pixels from here on; this scale is what keeps the
   // panel crisp regardless of the display's device pixel ratio.
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+  // The offscreen pixel canvas is deliberately low-res and untransformed --
+  // no dpr scaling -- since its whole job is to BE the coarse pixel grid
+  // that gets upscaled, not to be crisp on its own.
+  if (pixelCanvas !== null) {
+    pixelCanvas.width = Math.max(1, Math.round(logicalWidth / PIXEL_SCALE_DIVISOR))
+    pixelCanvas.height = Math.max(1, Math.round(logicalHeight / PIXEL_SCALE_DIVISOR))
+  }
 }
 
 resize()
@@ -193,14 +254,37 @@ function frame(now: number): void {
     }
   }
 
-  ctx.clearRect(0, 0, logicalWidth, logicalHeight)
   const pose: PanelPose = [
     digitSpringAngles(springs[0]),
     digitSpringAngles(springs[1]),
     digitSpringAngles(springs[2]),
     digitSpringAngles(springs[3]),
   ]
-  drawPanel(ctx, logicalWidth, logicalHeight, pose)
+
+  if (pixelRenderer !== null && pixelCanvas !== null && pixelCtx !== null) {
+    // Draw the panel at low res onto the offscreen canvas, then blit it back
+    // up onto the real (dpr-scaled) canvas with smoothing off, so the
+    // upscale stays hard-edged instead of blurring back into a soft shape.
+    pixelCtx.clearRect(0, 0, pixelCanvas.width, pixelCanvas.height)
+    drawPanel(pixelCtx, pixelCanvas.width, pixelCanvas.height, pose, pixelRenderer)
+
+    ctx.clearRect(0, 0, logicalWidth, logicalHeight)
+    ctx.imageSmoothingEnabled = false
+    ctx.drawImage(
+      pixelCanvas,
+      0,
+      0,
+      pixelCanvas.width,
+      pixelCanvas.height,
+      0,
+      0,
+      logicalWidth,
+      logicalHeight,
+    )
+  } else {
+    ctx.clearRect(0, 0, logicalWidth, logicalHeight)
+    drawPanel(ctx, logicalWidth, logicalHeight, pose)
+  }
 
   requestAnimationFrame(frame)
 }
