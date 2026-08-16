@@ -66,10 +66,10 @@ export const defaultClockStyle: ClockStyle = {
   faceShadowOffsetYRatio: 0.04,
   hourHandColor: '#f5f5f5',
   hourHandLengthRatio: 0.5,
-  hourHandWidthRatio: 0.05,
+  hourHandWidthRatio: 0.12,
   minuteHandColor: '#f5f5f5',
   minuteHandLengthRatio: 0.78,
-  minuteHandWidthRatio: 0.032,
+  minuteHandWidthRatio: 0.12,
 }
 
 /**
