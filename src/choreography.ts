@@ -185,6 +185,11 @@ interface PendingHand {
 export class TransitionScheduler {
   private pending: PendingHand[] = []
 
+  /** True when nothing is staged or waiting to fire -- idle.ts uses this as half of its "is the panel quiet" check (the other half is every spring's own isSettled). */
+  get isIdle(): boolean {
+    return this.pending.length === 0
+  }
+
   schedule(nowMs: number, hands: readonly ScheduledHand[]): void {
     if (hands.length === 0) return
     const incoming = new Set(hands.map((hand) => hand.spring))

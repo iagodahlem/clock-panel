@@ -22,6 +22,7 @@ import {
   type DigitStep,
   type ScheduledHand,
 } from './choreography'
+import { IdleChoreographer, type IdleClock, type IdlePattern } from './idle'
 
 function requireCanvas(): HTMLCanvasElement {
   const el = document.querySelector<HTMLCanvasElement>('#app')
@@ -192,11 +193,35 @@ const springs: readonly [DigitSprings, DigitSprings, DigitSprings, DigitSprings]
   digitSprings(digitPose(assertDigit(d3))),
 ]
 
+// --- Idle choreography: ambient hand patterns during quiet stretches
+// between minute changes. Shares the same RotationSpring instances and
+// TransitionScheduler as the minute-change choreography above -- see
+// idle.ts for how that reuse also gives interruption for free. ---
+
+/** Flattens the per-digit spring grid into idle.ts's flat clock list, tagging each with its global panel column (0-7, left to right across all four digits) and row (0-2) -- the same coordinate convention planDigitTransition uses for its own column stagger. */
+function flattenSpringsForIdle(
+  panel: readonly [DigitSprings, DigitSprings, DigitSprings, DigitSprings],
+): readonly IdleClock[] {
+  const clocks: IdleClock[] = []
+  panel.forEach((digit, digitIndex) => {
+    digit.forEach((clock, clockIndex) => {
+      clocks.push({
+        hour: clock.hour,
+        minute: clock.minute,
+        column: digitIndex * 2 + (clockIndex % 2),
+        row: Math.floor(clockIndex / 2),
+      })
+    })
+  })
+  return clocks
+}
+
 // --- Minute-change choreography: plans and stages the staggered sweep
 // for whichever digits actually changed, then hands it to the scheduler
 // to fire hand-by-hand against the rAF clock. See choreography.ts. ---
 
 const scheduler = new TransitionScheduler()
+const idleChoreographer = new IdleChoreographer(scheduler, flattenSpringsForIdle(springs), performance.now())
 
 function handSteps(spring: ClockSprings, step: ClockStep): readonly [ScheduledHand, ScheduledHand] {
   return [
@@ -244,6 +269,12 @@ function collectChangedHands(
  * transition that lands mid-flight retargets cleanly instead of snapping.
  */
 function runTransition(nextDigits: DigitTuple): void {
+  const nowMs = performance.now()
+  // A real transition always wins over ambient motion: fast-settle any
+  // idle pattern in flight before staging this one, so a minute change (or
+  // a ?to= QA trigger) landing mid-pattern never races the idle sweep.
+  idleChoreographer.abort(nowMs)
+
   const previousDigits = lastDigits
   lastDigits = nextDigits
   const [p0, p1, p2, p3] = previousDigits
@@ -280,7 +311,7 @@ function runTransition(nextDigits: DigitTuple): void {
   if (n3 !== p3) {
     hands.push(...collectChangedHands(columnGroup, p3, n3, s3))
   }
-  scheduler.schedule(performance.now(), hands)
+  scheduler.schedule(nowMs, hands)
 }
 
 // Live clock only: re-check once a second and transition whenever the
@@ -308,12 +339,32 @@ if (timeOverride !== null && toOverride !== null) {
   window.addEventListener('click', triggerTransition)
 }
 
+/** `?idle=wave|breathe|cascade` -- a QA affordance for reviewing a single idle pattern on demand instead of waiting out the randomized interval. Any key press or click plays it once, mirroring the ?to= trigger above. Honors reduced motion like every other idle path -- no-ops if it is on. */
+function parseIdleOverride(): IdlePattern | null {
+  const raw = new URLSearchParams(window.location.search).get('idle')
+  return raw === 'wave' || raw === 'breathe' || raw === 'cascade' ? raw : null
+}
+
+const idleOverride = parseIdleOverride()
+if (idleOverride !== null) {
+  const triggerIdle = (): void => {
+    if (reducedMotion) return
+    idleChoreographer.triggerOnce(performance.now(), idleOverride)
+  }
+  window.addEventListener('keydown', triggerIdle)
+  window.addEventListener('click', triggerIdle)
+}
+
 let lastTime = performance.now()
 
 function frame(now: number): void {
   const dt = (now - lastTime) / 1000
   lastTime = now
 
+  // Idle first: any pattern it stages this frame (or fast-settle from an
+  // abort) goes into the same scheduler tick below, so a zero-delay hand
+  // fires within this frame instead of waiting a whole extra one.
+  idleChoreographer.tick(now, reducedMotion)
   scheduler.tick(now)
 
   for (const digit of springs) {
