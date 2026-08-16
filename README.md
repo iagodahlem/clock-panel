@@ -4,7 +4,7 @@ A panel of small analog clocks whose hands align to display the time. Inspired b
 
 ## Status
 
-Early. What's here right now is a single-clock motion study: one large clock demonstrating the rotation primitive that the full panel will later run on 24 copies of. There's no digit layout, no panel grid, and no minute-change choreography yet.
+Early. The panel now renders the current local time as 24 clocks (4 digits, HH:MM, 2x3 clocks each), fit to and centered on the canvas at any size. There's no minute-change choreography yet -- hands jump straight to their new pose when the time changes.
 
 ## Running it
 
@@ -13,7 +13,7 @@ pnpm install
 pnpm dev
 ```
 
-Open the URL it prints. The clock picks a new random hand pose every few seconds on its own. Click it to retarget immediately, mid-motion, and watch the hands redirect instead of snapping.
+Open the URL it prints. The panel shows the current local time and keeps ticking as the minute changes. Append `?time=HHMM` or `?time=HH:MM` to the URL (e.g. `?time=13:45`) to override the displayed time with any 4 digits, for reviewing the digit font.
 
 ## Scripts
 
