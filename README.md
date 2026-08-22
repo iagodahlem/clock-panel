@@ -22,6 +22,11 @@ Open the URL it prints. The panel shows the current local time and keeps ticking
 - `pnpm preview` - preview the production build
 - `pnpm typecheck` - run `tsc --noEmit`
 - `pnpm lint` - run eslint
+- `pnpm deploy:pages` - build and publish `dist/` to `gh-pages`
+
+## Deploying
+
+Live at <https://iagodahlem.github.io/clock-panel/>. Run `pnpm deploy:pages` to build and publish.
 
 ## Dev server hosts
 
