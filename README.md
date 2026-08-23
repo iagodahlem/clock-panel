@@ -15,6 +15,12 @@ pnpm dev
 
 Open the URL it prints. The panel shows the current local time and keeps ticking as the minute changes. Append `?time=HHMM` or `?time=HH:MM` to the URL (e.g. `?time=13:45`) to override the displayed time with any 4 digits, for reviewing the digit font. Add a second `?to=HHMM` alongside it (e.g. `?time=13:45&to=13:46`) and any key press or click transitions the panel between the two, for watching the choreography on demand. Between minute changes the panel occasionally plays a short ambient hand pattern on its own; append `?idle=wave`, `?idle=breathe`, or `?idle=cascade` and any key press or click plays that pattern once on demand instead of waiting for it.
 
+## Architecture
+
+The app is a thin React shell around a plain-canvas render loop. `src/controller.ts` owns everything animated: the `requestAnimationFrame` loop, the spring-driven hand angles, the minute-change and idle choreography, and the canvas drawing itself. `createPanelController(canvas, options)` returns a small imperative handle (`setTime`, `transitionTo`, `playIdle`, `start`/`stop`/`destroy`, `getState`, `on`) - React never touches the loop's internals directly.
+
+`src/PanelCanvas.tsx` is the only React component today. It mounts the canvas, creates the controller inside a `useEffect` (with `destroy()` as cleanup), reads `?time=`/`?to=`/`?idle=` once into initial state, and wires up the existing any-key/click QA transition trigger as a plain handler. React never reads the controller's live state during render and never re-creates it on a prop change, so the animation is free to run entirely on its own clock. Keeping the loop outside React's render cycle this way - rather than driving it from render or from an effect that closes over changing state - is what avoids the class of bug where a stale closure or a mid-render ref read reaches into a running animation.
+
 ## Scripts
 
 - `pnpm dev` - start the dev server
@@ -22,6 +28,7 @@ Open the URL it prints. The panel shows the current local time and keeps ticking
 - `pnpm preview` - preview the production build
 - `pnpm typecheck` - run `tsc --noEmit`
 - `pnpm lint` - run eslint
+- `pnpm test` - run the unit tests
 - `pnpm deploy:pages` - build and publish `dist/` to `gh-pages`
 
 ## Deploying

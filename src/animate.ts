@@ -119,6 +119,19 @@ export class RotationSpring {
   }
 
   /**
+   * Immediately jumps to `angle` with zero velocity, bypassing the spring
+   * and the reduced-motion crossfade entirely -- for setting a pose with
+   * no animation at all, the same way a freshly constructed spring starts
+   * at rest on its initial angle.
+   */
+  snapTo(angle: number): void {
+    this.angle = angle
+    this.target = angle
+    this.velocity = 0
+    this.reducedMotionElapsed = null
+  }
+
+  /**
    * Retargets toward `desiredAngle`. Safe to call mid-flight: the spring
    * keeps its current position and velocity and steers toward the new
    * target from there, so motion stays continuous instead of snapping.

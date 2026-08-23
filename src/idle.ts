@@ -184,7 +184,7 @@ export class IdleChoreographer {
     private readonly scheduler: TransitionScheduler,
     private readonly clocks: readonly IdleClock[],
     nowMs: number,
-    private readonly config: IdleConfig = defaultIdleConfig,
+    private config: IdleConfig = defaultIdleConfig,
     private readonly random: () => number = Math.random,
   ) {
     this.nextAttemptAt = nowMs + this.randomInterval()
@@ -193,6 +193,15 @@ export class IdleChoreographer {
   /** The pattern currently mid-flight, if any -- exposed for QA/debugging, not required for normal operation. */
   get current(): IdlePattern | null {
     return this.activePattern?.pattern ?? null
+  }
+
+  /**
+   * Replaces the tuning used for every automatic attempt and pattern
+   * started from now on. Does not touch a pattern already mid-flight --
+   * that one finishes out under the config it started with.
+   */
+  setConfig(config: IdleConfig): void {
+    this.config = config
   }
 
   private randomInterval(): number {
