@@ -278,12 +278,14 @@ export function createPanelController(
   reducedMotionQuery.addEventListener('change', onReducedMotionChange)
 
   // --- Pointer: the panel's light source. Each frame hands the last known
-  // pointer position to drawPanel, which aims every clock's rim highlight
-  // at it from that clock's own center. Kept as a plain local the render
-  // loop reads, not state anything re-renders on: a pointermove can fire
-  // several times per frame and the loop only needs wherever it ended up.
-  // Null until the first move, which is also what a device that never
-  // sends one keeps seeing -- the resting light angle from the style. ---
+  // pointer position to drawPanel, which takes the direction from each
+  // clock's own center to it as that clock's light angle, turning the inner
+  // shadow, the bright crescent and the hand shadows together. Kept as a
+  // plain local the render loop reads, not state anything re-renders on: a
+  // pointermove can fire several times per frame and the loop only needs
+  // wherever it ended up. Null until the first move, which is also what a
+  // device that never sends one keeps seeing -- the resting light angle
+  // from the style. ---
 
   let pointer: PanelPointer | null = null
 
@@ -479,10 +481,10 @@ export function createPanelController(
       digitSpringAngles(springs[2]),
       digitSpringAngles(springs[3]),
     ]
-    // Reduced motion drops the pointer, not the rim: the panel keeps its
-    // bevel, lit from the style's resting angle, and simply stops having a
-    // highlight that chases the cursor -- the same call this makes for the
-    // reduced-motion springs and idle patterns above.
+    // Reduced motion drops the pointer, not the lighting: the panel keeps
+    // its wells, lit from the style's resting angle, and simply stops
+    // having shading that chases the cursor -- the same call this makes for
+    // the reduced-motion springs and idle patterns above.
     drawPanel(
       ctx,
       logicalWidth,

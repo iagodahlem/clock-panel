@@ -114,15 +114,22 @@ function computeFit(canvasWidth: number, canvasHeight: number): Fit {
  * ClockStyle.lightAngle use, so this can be handed straight to lightAngle.
  *
  * Per clock, not per panel, on purpose: a single shared direction would
- * swing all 24 highlights in lockstep, which reads as one big rotating
- * gradient. Measuring from each disc's own center is what makes the panel
- * read as 24 separate objects catching one light that moves.
+ * swing all 24 faces in lockstep, which reads as one big rotating gradient.
+ * Measuring from each disc's own center is what makes the panel read as 24
+ * separate wells catching one light that moves -- the clock the pointer sits
+ * on is lit from a different side than the one across the panel from it.
  */
 export function lightAngleToward(cx: number, cy: number, pointer: PanelPointer): number {
   return Math.atan2(pointer.x - cx, cy - pointer.y)
 }
 
-/** The style one clock draws with: the shared style untouched when no pointer is on the canvas, or a copy with its light aimed at the pointer when there is one. */
+/**
+ * The style one clock draws with: the shared style untouched when no pointer
+ * is on the canvas, or a copy with its light aimed at the pointer when there
+ * is one. One field, because one field is the whole lighting model -- the
+ * inner shadow, the bright crescent and the hand shadows are all derived
+ * from lightAngle inside drawClock, so they can never drift apart.
+ */
 function styleLitToward(
   style: ClockStyle,
   cx: number,
@@ -168,10 +175,11 @@ function drawDigit(
  * Draws the full 24-clock time panel, fit to and centered within a canvas
  * of the given logical (CSS) pixel size.
  *
- * `pointer`, when given, aims every clock's rim highlight at that position
- * from its own center. Pass null (the default) for the resting look: every
- * clock lit from the shared style's own lightAngle, which is what a device
- * that never sends a pointer keeps seeing.
+ * `pointer`, when given, makes that position the panel's light source: every
+ * clock takes the direction from its own center to the pointer as its light
+ * angle, so the shading of all 24 turns together as it moves. Pass null (the
+ * default) for the resting look: every clock lit from the shared style's own
+ * lightAngle, which is what a device that never sends a pointer keeps seeing.
  */
 export function drawPanel(
   ctx: CanvasRenderingContext2D,
