@@ -10,10 +10,10 @@
 // cycle entirely is deliberate: it is what avoids a stale-closure effect or
 // a ref read during render ever reaching into a running animation.
 
-import { drawPanel, type PanelPose } from './panel'
+import { drawPanel, type PanelPointer, type PanelPose } from './panel'
 import { digitPose, type Digit, type DigitPose } from './font'
 import { RotationSpring } from './animate'
-import type { ClockHandAngles } from './clock'
+import { defaultClockStyle, type ClockHandAngles } from './clock'
 import {
   planDigitTransition,
   defaultChoreography,
@@ -22,7 +22,13 @@ import {
   type DigitStep,
   type ScheduledHand,
 } from './choreography'
-import { IdleChoreographer, defaultIdleConfig, type IdleClock, type IdleConfig, type IdlePattern } from './idle'
+import {
+  IdleChoreographer,
+  defaultIdleConfig,
+  type IdleClock,
+  type IdleConfig,
+  type IdlePattern,
+} from './idle'
 
 /** A time as 4 raw digits, HH:MM. See parseHHMM -- this does not imply the value is a valid clock time. */
 export type DigitTuple = readonly [number, number, number, number]
@@ -149,8 +155,18 @@ function flattenSpringsForIdle(
 
 function handSteps(spring: ClockSprings, step: ClockStep): readonly [ScheduledHand, ScheduledHand] {
   return [
-    { spring: spring.hour, desiredAngle: step.hour.desiredAngle, options: step.hour.options, delayMs: step.hour.delayMs },
-    { spring: spring.minute, desiredAngle: step.minute.desiredAngle, options: step.minute.options, delayMs: step.minute.delayMs },
+    {
+      spring: spring.hour,
+      desiredAngle: step.hour.desiredAngle,
+      options: step.hour.options,
+      delayMs: step.hour.delayMs,
+    },
+    {
+      spring: spring.minute,
+      desiredAngle: step.minute.desiredAngle,
+      options: step.minute.options,
+      delayMs: step.minute.delayMs,
+    },
   ]
 }
 
@@ -260,6 +276,32 @@ export function createPanelController(
     reducedMotion = event.matches
   }
   reducedMotionQuery.addEventListener('change', onReducedMotionChange)
+
+  // --- Pointer: the panel's light source. Each frame hands the last known
+  // pointer position to drawPanel, which aims every clock's rim highlight
+  // at it from that clock's own center. Kept as a plain local the render
+  // loop reads, not state anything re-renders on: a pointermove can fire
+  // several times per frame and the loop only needs wherever it ended up.
+  // Null until the first move, which is also what a device that never
+  // sends one keeps seeing -- the resting light angle from the style. ---
+
+  let pointer: PanelPointer | null = null
+
+  const onPointerMove = (event: PointerEvent): void => {
+    // Mouse only. A touch contact is a tap that happens to have
+    // coordinates, not a light hovering over the panel, so phones stay on
+    // the resting light angle and nothing about them changes.
+    if (event.pointerType !== 'mouse') return
+    const rect = canvas.getBoundingClientRect()
+    pointer = { x: event.clientX - rect.left, y: event.clientY - rect.top }
+  }
+
+  const onPointerLeave = (): void => {
+    pointer = null
+  }
+
+  canvas.addEventListener('pointermove', onPointerMove)
+  canvas.addEventListener('pointerleave', onPointerLeave)
 
   // --- Time source and spring state. ---
 
@@ -437,7 +479,18 @@ export function createPanelController(
       digitSpringAngles(springs[2]),
       digitSpringAngles(springs[3]),
     ]
-    drawPanel(ctx, logicalWidth, logicalHeight, pose)
+    // Reduced motion drops the pointer, not the rim: the panel keeps its
+    // bevel, lit from the style's resting angle, and simply stops having a
+    // highlight that chases the cursor -- the same call this makes for the
+    // reduced-motion springs and idle patterns above.
+    drawPanel(
+      ctx,
+      logicalWidth,
+      logicalHeight,
+      pose,
+      defaultClockStyle,
+      reducedMotion ? null : pointer,
+    )
 
     rafId = requestAnimationFrame(frame)
   }
@@ -471,6 +524,8 @@ export function createPanelController(
     doStop()
     window.removeEventListener('resize', resize)
     reducedMotionQuery.removeEventListener('change', onReducedMotionChange)
+    canvas.removeEventListener('pointermove', onPointerMove)
+    canvas.removeEventListener('pointerleave', onPointerLeave)
   }
 
   return {
