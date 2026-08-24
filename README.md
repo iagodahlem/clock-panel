@@ -4,7 +4,7 @@ A panel of small analog clocks whose hands align to display the time. Inspired b
 
 ## Status
 
-Early. The panel renders the current local time as 24 clocks (4 digits, HH:MM, 2x3 clocks each), fit to and centered on the canvas at any size. On a minute change, the hands that need to move sweep into their new pose with a staggered, directional choreography instead of jumping straight there. Between changes the panel is not fully still either: every so often it plays a brief ambient pattern across the hands, always returning every hand to its digit pose by the end.
+Early. The panel renders the current local time as 24 clocks (4 digits, HH:MM, 2x3 clocks each), fit to and centered on the canvas at any size. On a minute change, the hands that need to move sweep into their new pose with a staggered, directional choreography instead of jumping straight there. Between changes the panel is not fully still either: every so often it plays a brief ambient pattern across the hands, always returning every hand to its digit pose by the end. Each clock is filled at the page's own background color and separated from it by its border alone, and that border is lit from one side: with a mouse on the panel, the lit part of every border turns to face the cursor, so the 24 discs read as one light moving across them.
 
 ## Running it
 
@@ -17,7 +17,7 @@ Open the URL it prints. The panel shows the current local time and keeps ticking
 
 ## Architecture
 
-The app is a thin React shell around a plain-canvas render loop. `src/controller.ts` owns everything animated: the `requestAnimationFrame` loop, the spring-driven hand angles, the minute-change and idle choreography, and the canvas drawing itself. `createPanelController(canvas, options)` returns a small imperative handle (`setTime`, `transitionTo`, `playIdle`, `start`/`stop`/`destroy`, `getState`, `on`) - React never touches the loop's internals directly.
+The app is a thin React shell around a plain-canvas render loop. `src/controller.ts` owns everything animated: the `requestAnimationFrame` loop, the spring-driven hand angles, the minute-change and idle choreography, the pointer position the rim highlights follow, and the canvas drawing itself. `createPanelController(canvas, options)` returns a small imperative handle (`setTime`, `transitionTo`, `playIdle`, `start`/`stop`/`destroy`, `getState`, `on`) - React never touches the loop's internals directly.
 
 `src/PanelCanvas.tsx` is the only React component today. It mounts the canvas, creates the controller inside a `useEffect` (with `destroy()` as cleanup), reads `?time=`/`?to=`/`?idle=` once into initial state, and wires up the existing any-key/click QA transition trigger as a plain handler. React never reads the controller's live state during render and never re-creates it on a prop change, so the animation is free to run entirely on its own clock. Keeping the loop outside React's render cycle this way - rather than driving it from render or from an effect that closes over changing state - is what avoids the class of bug where a stale closure or a mid-render ref read reaches into a running animation.
 
