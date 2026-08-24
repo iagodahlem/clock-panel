@@ -2,10 +2,11 @@
 // color, so the only thing that separates it from the page is its border --
 // a wide two-tone rim that is lit on the side the light comes from and dark
 // on the opposite side, which is what makes the disc read as a physical,
-// bevelled object rather than a flat sticker. Plus two hands as line
-// segments from the center. Draws in logical (CSS) pixels -- the caller is
-// responsible for scaling the canvas context to devicePixelRatio once, up
-// front, so the face stays crisp on any display.
+// bevelled object rather than a flat sticker. Plus two hands as
+// square-tipped segments from the center, sharing one round hub. Draws in
+// logical (CSS) pixels -- the caller is responsible for scaling the canvas
+// context to devicePixelRatio once, up front, so the face stays crisp on
+// any display.
 
 const TAU = Math.PI * 2
 
@@ -67,11 +68,14 @@ export const defaultClockStyle: ClockStyle = {
   rimLightWidthRatio: 0.06,
   rimLightFalloffPower: 0.6,
   hourHandColor: '#f5f5f5',
-  hourHandLengthRatio: 0.5,
-  hourHandWidthRatio: 0.12,
+  hourHandLengthRatio: 0.7,
+  hourHandWidthRatio: 0.16,
   minuteHandColor: '#f5f5f5',
-  minuteHandLengthRatio: 0.78,
-  minuteHandWidthRatio: 0.12,
+  // Reaches to just inside the rim's inner edge: 1 - rimLightWidthRatio is
+  // where the ring starts, and the remainder is the gap that keeps the
+  // square tip from touching it.
+  minuteHandLengthRatio: 0.9,
+  minuteHandWidthRatio: 0.16,
 }
 
 /**
@@ -118,6 +122,13 @@ function buildRimLightGradient(
   return gradient
 }
 
+/**
+ * One hand, as a square-tipped segment from the center. `lineCap` is 'butt'
+ * on purpose: the tip is a flat edge, and the only rounded end is the hub
+ * drawn once after both hands, not a cap on each. `width` arrives already
+ * clamped by the caller, so the hub can be sized from the same number the
+ * strokes actually used.
+ */
 function drawHand(
   ctx: CanvasRenderingContext2D,
   cx: number,
@@ -133,8 +144,8 @@ function drawHand(
   ctx.beginPath()
   ctx.moveTo(cx, cy)
   ctx.lineTo(x, y)
-  ctx.lineCap = 'round'
-  ctx.lineWidth = Math.max(1, width)
+  ctx.lineCap = 'butt'
+  ctx.lineWidth = width
   ctx.strokeStyle = color
   ctx.stroke()
 }
@@ -181,13 +192,21 @@ export function drawClock(
   ctx.strokeStyle = buildRimLightGradient(ctx, cx, cy, style)
   ctx.stroke()
 
+  // Hands, then the one hub they share. Clamping both widths here rather
+  // than inside drawHand is what lets the hub be sized off the same clamped
+  // number the strokes actually used: at the smallest clock sizes the clamp
+  // *is* the width, and a hub sized from the raw ratio would disappear
+  // inside the hands it is supposed to round off.
+  const hourWidth = Math.max(1, radius * style.hourHandWidthRatio)
+  const minuteWidth = Math.max(1, radius * style.minuteHandWidthRatio)
+
   drawHand(
     ctx,
     cx,
     cy,
     angles.hourAngle,
     radius * style.hourHandLengthRatio,
-    radius * style.hourHandWidthRatio,
+    hourWidth,
     style.hourHandColor,
   )
   drawHand(
@@ -196,9 +215,18 @@ export function drawClock(
     cy,
     angles.minuteAngle,
     radius * style.minuteHandLengthRatio,
-    radius * style.minuteHandWidthRatio,
+    minuteWidth,
     style.minuteHandColor,
   )
+
+  // The rounded end both hands share: a filled circle at the center, the
+  // wider hand's width across. Drawn after both so it rounds off whichever
+  // was drawn first as well, and in the minute hand's color since that is
+  // the hand it always has to disappear into.
+  ctx.beginPath()
+  ctx.arc(cx, cy, Math.max(hourWidth, minuteWidth) / 2, 0, TAU)
+  ctx.fillStyle = style.minuteHandColor
+  ctx.fill()
 
   ctx.restore()
 }
