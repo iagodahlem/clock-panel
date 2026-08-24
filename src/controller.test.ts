@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { formatHHMM, parseHHMM } from './controller'
 import { TransitionScheduler } from './choreography'
 import { RotationSpring } from './animate'
+import { lightAngleToward } from './panel'
 
 describe('parseHHMM', () => {
   it('parses both HHMM and HH:MM the same way, and round-trips with formatHHMM', () => {
@@ -52,5 +53,27 @@ describe('TransitionScheduler', () => {
 
     scheduler.tick(200)
     expect(scheduler.isIdle).toBe(true)
+  })
+})
+
+describe('lightAngleToward', () => {
+  // The clock-angle convention, the one thing here that is easy to get
+  // subtly wrong: 0 = 12 o'clock, positive clockwise, matching the hands.
+  it('maps a pointer around a clock onto the same angles the hands use', () => {
+    const cx = 100
+    const cy = 100
+    expect(lightAngleToward(cx, cy, { x: 100, y: 20 })).toBeCloseTo(0)
+    expect(lightAngleToward(cx, cy, { x: 180, y: 100 })).toBeCloseTo(Math.PI / 2)
+    expect(lightAngleToward(cx, cy, { x: 100, y: 180 })).toBeCloseTo(Math.PI)
+    expect(lightAngleToward(cx, cy, { x: 20, y: 100 })).toBeCloseTo(-Math.PI / 2)
+  })
+
+  it('measures from each clock, so one pointer lights neighbors from different sides', () => {
+    const pointer = { x: 100, y: 100 }
+    // A clock to the pointer's left is lit on its right, and one to the
+    // pointer's right is lit on its left -- the whole point of measuring
+    // per clock rather than sharing one panel-wide direction.
+    expect(lightAngleToward(40, 100, pointer)).toBeCloseTo(Math.PI / 2)
+    expect(lightAngleToward(160, 100, pointer)).toBeCloseTo(-Math.PI / 2)
   })
 })

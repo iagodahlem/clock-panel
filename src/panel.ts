@@ -118,7 +118,7 @@ function computeFit(canvasWidth: number, canvasHeight: number): Fit {
  * gradient. Measuring from each disc's own center is what makes the panel
  * read as 24 separate objects catching one light that moves.
  */
-function lightAngleToward(cx: number, cy: number, pointer: PanelPointer): number {
+export function lightAngleToward(cx: number, cy: number, pointer: PanelPointer): number {
   return Math.atan2(pointer.x - cx, cy - pointer.y)
 }
 
