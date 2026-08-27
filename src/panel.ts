@@ -39,6 +39,12 @@ interface ClockCenter {
   readonly y: number
 }
 
+/** A pointer position over the canvas, in the same logical (CSS) pixel space as canvasWidth/canvasHeight. */
+export interface PanelPointer {
+  readonly x: number
+  readonly y: number
+}
+
 /** One center per digit node, in the same fixed order as font.ts's DigitPose: top-left, top-right, mid-left, mid-right, bottom-left, bottom-right. */
 type DigitCenters = readonly [
   ClockCenter,
@@ -102,21 +108,49 @@ function computeFit(canvasWidth: number, canvasHeight: number): Fit {
   }
 }
 
+/**
+ * The clock-angle from one clock's own center toward the pointer: radians,
+ * 0 = 12 o'clock, positive clockwise -- the same convention the hands and
+ * ClockStyle.lightAngle use, so this can be handed straight to lightAngle.
+ *
+ * Per clock, not per panel, on purpose: a single shared direction would
+ * swing all 24 faces in lockstep, which reads as one big rotating gradient.
+ * Measuring from each disc's own center is what makes the panel read as 24
+ * separate wells catching one light that moves -- the clock the pointer sits
+ * on is lit from a different side than the one across the panel from it.
+ */
+export function lightAngleToward(cx: number, cy: number, pointer: PanelPointer): number {
+  return Math.atan2(pointer.x - cx, cy - pointer.y)
+}
+
+/**
+ * The style one clock draws with: the shared style untouched when no pointer
+ * is on the canvas, or a copy with its light aimed at the pointer when there
+ * is one. One field, because one field is the whole lighting model -- the
+ * inner shadow, the bright crescent and the hand shadows are all derived
+ * from lightAngle inside drawClock, so they can never drift apart.
+ */
+function styleLitToward(
+  style: ClockStyle,
+  cx: number,
+  cy: number,
+  pointer: PanelPointer | null,
+): ClockStyle {
+  if (pointer === null) return style
+  return { ...style, lightAngle: lightAngleToward(cx, cy, pointer) }
+}
+
 function drawOne(
   ctx: CanvasRenderingContext2D,
   fit: Fit,
   center: ClockCenter,
   angles: ClockHandAngles,
   style: ClockStyle,
+  pointer: PanelPointer | null,
 ): void {
-  drawClock(
-    ctx,
-    fit.originX + center.x * fit.scale,
-    fit.originY + center.y * fit.scale,
-    fit.radius,
-    angles,
-    style,
-  )
+  const cx = fit.originX + center.x * fit.scale
+  const cy = fit.originY + center.y * fit.scale
+  drawClock(ctx, cx, cy, fit.radius, angles, styleLitToward(style, cx, cy, pointer))
 }
 
 function drawDigit(
@@ -125,20 +159,27 @@ function drawDigit(
   centers: DigitCenters,
   angles: DigitPose,
   style: ClockStyle,
+  pointer: PanelPointer | null,
 ): void {
   const [centerTL, centerTR, centerML, centerMR, centerBL, centerBR] = centers
   const [poseTL, poseTR, poseML, poseMR, poseBL, poseBR] = angles
-  drawOne(ctx, fit, centerTL, poseTL, style)
-  drawOne(ctx, fit, centerTR, poseTR, style)
-  drawOne(ctx, fit, centerML, poseML, style)
-  drawOne(ctx, fit, centerMR, poseMR, style)
-  drawOne(ctx, fit, centerBL, poseBL, style)
-  drawOne(ctx, fit, centerBR, poseBR, style)
+  drawOne(ctx, fit, centerTL, poseTL, style, pointer)
+  drawOne(ctx, fit, centerTR, poseTR, style, pointer)
+  drawOne(ctx, fit, centerML, poseML, style, pointer)
+  drawOne(ctx, fit, centerMR, poseMR, style, pointer)
+  drawOne(ctx, fit, centerBL, poseBL, style, pointer)
+  drawOne(ctx, fit, centerBR, poseBR, style, pointer)
 }
 
 /**
  * Draws the full 24-clock time panel, fit to and centered within a canvas
  * of the given logical (CSS) pixel size.
+ *
+ * `pointer`, when given, makes that position the panel's light source: every
+ * clock takes the direction from its own center to the pointer as its light
+ * angle, so the shading of all 24 turns together as it moves. Pass null (the
+ * default) for the resting look: every clock lit from the shared style's own
+ * lightAngle, which is what a device that never sends a pointer keeps seeing.
  */
 export function drawPanel(
   ctx: CanvasRenderingContext2D,
@@ -146,12 +187,13 @@ export function drawPanel(
   canvasHeight: number,
   pose: PanelPose,
   style: ClockStyle = defaultClockStyle,
+  pointer: PanelPointer | null = null,
 ): void {
   const fit = computeFit(canvasWidth, canvasHeight)
   const [centers0, centers1, centers2, centers3] = PANEL_CENTERS
   const [pose0, pose1, pose2, pose3] = pose
-  drawDigit(ctx, fit, centers0, pose0, style)
-  drawDigit(ctx, fit, centers1, pose1, style)
-  drawDigit(ctx, fit, centers2, pose2, style)
-  drawDigit(ctx, fit, centers3, pose3, style)
+  drawDigit(ctx, fit, centers0, pose0, style, pointer)
+  drawDigit(ctx, fit, centers1, pose1, style, pointer)
+  drawDigit(ctx, fit, centers2, pose2, style, pointer)
+  drawDigit(ctx, fit, centers3, pose3, style, pointer)
 }
