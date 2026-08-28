@@ -122,6 +122,13 @@ export interface ClockStyle {
   minuteHandColor: string
   minuteHandLengthRatio: number
   minuteHandWidthRatio: number
+
+  /** Hub radius, as a ratio of the well radius. Sized to clear the corner where two perpendicular hands of `*HandWidthRatio` width meet, so it reads as a rounded joint rather than a disc dropped on a square corner. */
+  hubRadiusRatio: number
+  /** Width of the subtle ring stroked inside the hub disc, as a ratio of the well radius. */
+  hubRingWidthRatio: number
+  /** Color of that ring: a touch lighter than the hand fill, not a contrasting accent -- the hub reads as a quiet bevel, not a badge. */
+  hubRingColor: string
 }
 
 export const defaultClockStyle: ClockStyle = {
@@ -147,11 +154,15 @@ export const defaultClockStyle: ClockStyle = {
   rimLightMaxAlphaNear: 1,
 
   hourHandColor: '#f5f5f5',
-  hourHandLengthRatio: 0.751,
-  hourHandWidthRatio: 0.115,
+  hourHandLengthRatio: 0.62,
+  hourHandWidthRatio: 0.2,
   minuteHandColor: '#f5f5f5',
-  minuteHandLengthRatio: 0.96,
-  minuteHandWidthRatio: 0.115,
+  minuteHandLengthRatio: 0.82,
+  minuteHandWidthRatio: 0.2,
+
+  hubRadiusRatio: 0.17,
+  hubRingWidthRatio: 0.016,
+  hubRingColor: 'rgba(255, 255, 255, 0.4)',
 }
 
 /** Concentric passes the inner shadow's radial falloff is built from. Capped down on small clocks so no pass lands thinner than about a pixel. */
@@ -357,11 +368,12 @@ function drawHandShadow(
 }
 
 /**
- * One hand, as a square-tipped segment from the center. `lineCap` is 'butt'
- * on purpose: the tip is a flat edge, and the only rounded end is the hub
- * drawn once after both hands, not a cap on each. `width` arrives already
- * clamped by the caller, so the hub can be sized from the same number the
- * strokes actually used.
+ * One hand, as a thick rounded-cap bar from the center. `length` is the
+ * bar's own geometric reach; the round cap adds another `width / 2` beyond
+ * that to the hand's *visual* tip, which is why the caller pre-shrinks
+ * `length` rather than leaving it at the plain 0-1 fraction of the radius.
+ * `width` arrives already clamped by the caller, so the hub can be sized
+ * from the same number the strokes actually used.
  */
 function drawHand(
   ctx: CanvasRenderingContext2D,
@@ -378,9 +390,39 @@ function drawHand(
   ctx.beginPath()
   ctx.moveTo(cx, cy)
   ctx.lineTo(x, y)
-  ctx.lineCap = 'butt'
+  ctx.lineCap = 'round'
   ctx.lineWidth = width
   ctx.strokeStyle = color
+  ctx.stroke()
+}
+
+/**
+ * The hub both hands pivot on: a filled disc sized to clear the square
+ * corner two perpendicular hands leave at the center, so it reads as a
+ * rounded joint rather than a circle dropped on a corner, plus a thin ring
+ * stroked just inside its edge for the subtle bevel the reference shows.
+ * Filled in the minute hand's color, since that is the hand it always has
+ * to disappear into, and drawn last so it sits above both hands.
+ */
+function drawHub(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  style: ClockStyle,
+): void {
+  const hubRadius = radius * style.hubRadiusRatio
+
+  ctx.beginPath()
+  ctx.arc(cx, cy, hubRadius, 0, TAU)
+  ctx.fillStyle = style.minuteHandColor
+  ctx.fill()
+
+  const ringWidth = Math.max(1, radius * style.hubRingWidthRatio)
+  ctx.lineWidth = ringWidth
+  ctx.strokeStyle = style.hubRingColor
+  ctx.beginPath()
+  ctx.arc(cx, cy, hubRadius * 0.86, 0, TAU)
   ctx.stroke()
 }
 
@@ -409,38 +451,49 @@ export function drawClock(
   ctx.fill()
 
   drawWellShadow(ctx, cx, cy, radius, style)
+  drawRimHighlight(ctx, cx, cy, radius, style)
 
-  // Hands, then the one hub they share. Clamping both widths here rather
-  // than inside drawHand is what lets the hub be sized off the same clamped
-  // number the strokes actually used: at the smallest clock sizes the clamp
-  // *is* the width, and a hub sized from the raw ratio would disappear
-  // inside the hands it is supposed to round off.
   const hourWidth = Math.max(1, radius * style.hourHandWidthRatio)
   const minuteWidth = Math.max(1, radius * style.minuteHandWidthRatio)
-  const hubRadius = Math.max(hourWidth, minuteWidth) / 2
   const hourLength = radius * style.hourHandLengthRatio
   const minuteLength = radius * style.minuteHandLengthRatio
 
-  // Hand shadows, all of them before any hand: each layer is translucent,
-  // so a shadow drawn after a hand would darken the hand it fell across.
-  // Stacking the same alpha several times reaches the peak asked for --
-  // hence the per-layer alpha rather than the peak itself. Clipped to the
-  // face, and only here: a hand pointing away from the light throws its
-  // shadow into the far wall, and without the clip the tail of it would
-  // land outside the disc as a smudge on the page. Everything else on the
-  // face is stroked flush to the edge already, so keeping the clip off
-  // those passes keeps the crescent's outer edge antialiased by the stroke
-  // rather than cut by a clip path.
+  // Each hand's shadow is drawn immediately before that hand, not both
+  // shadows before both hands: the minute hand sits in front of the hour
+  // hand, so its shadow has to fall across the hour hand too, the same way
+  // it falls across the face. Drawing hour-shadow, hour-hand, then
+  // minute-shadow, minute-hand is what lets the minute shadow paint over
+  // the now-opaque hour hand and read as one hand raised above the other,
+  // rather than two independent shadows that never interact. Each shadow
+  // pass is translucent, so it would darken a hand drawn before it -- which
+  // is exactly the effect wanted for the hour hand, and exactly why the
+  // hour shadow has nothing to fall across yet.
+  //
+  // Both passes clip to the face, and only here: a hand pointing away from
+  // the light throws its shadow into the far wall, and without the clip the
+  // tail of it would land outside the disc as a smudge on the page.
+  // Everything else on the face is stroked flush to the edge already, so
+  // keeping the clip off those passes keeps the crescent's outer edge
+  // antialiased by the stroke rather than cut by a clip path.
   const offset = handShadowOffset(style.lightAngle, radius, style)
   const blur = radius * style.handShadowBlurRatio
   const layerAlpha = 1 - (1 - style.handShadowMaxAlpha) ** (1 / HAND_SHADOW_STEPS)
   const shadowX = cx + offset.x
   const shadowY = cy + offset.y
+
   ctx.save()
   ctx.beginPath()
   ctx.arc(cx, cy, radius, 0, TAU)
   ctx.clip()
   drawHandShadow(ctx, shadowX, shadowY, angles.hourAngle, hourLength, hourWidth, blur, layerAlpha)
+  ctx.restore()
+
+  drawHand(ctx, cx, cy, angles.hourAngle, hourLength, hourWidth, style.hourHandColor)
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius, 0, TAU)
+  ctx.clip()
   drawHandShadow(
     ctx,
     shadowX,
@@ -453,19 +506,9 @@ export function drawClock(
   )
   ctx.restore()
 
-  drawRimHighlight(ctx, cx, cy, radius, style)
-
-  drawHand(ctx, cx, cy, angles.hourAngle, hourLength, hourWidth, style.hourHandColor)
   drawHand(ctx, cx, cy, angles.minuteAngle, minuteLength, minuteWidth, style.minuteHandColor)
 
-  // The rounded end both hands share: a filled circle at the center, the
-  // wider hand's width across. Drawn after both so it rounds off whichever
-  // was drawn first as well, and in the minute hand's color since that is
-  // the hand it always has to disappear into.
-  ctx.beginPath()
-  ctx.arc(cx, cy, hubRadius, 0, TAU)
-  ctx.fillStyle = style.minuteHandColor
-  ctx.fill()
+  drawHub(ctx, cx, cy, radius, style)
 
   ctx.restore()
 }
