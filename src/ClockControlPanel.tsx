@@ -175,7 +175,11 @@ export function ClockControlPanel({
   return (
     <ControlPanel>
       <div
-        className="fixed right-15 bottom-4 z-40 transition-opacity duration-300"
+        // right-17 clears the fullscreen button's own right-4/size-11 box
+        // (see FullscreenButton.tsx) with the same 0.5rem gap between the
+        // two pieces of chrome this app already had before that button
+        // grew to match this trigger's height.
+        className="fixed right-17 bottom-4 z-40 transition-opacity duration-300"
         style={{ opacity: shown ? 1 : 0, pointerEvents: shown ? 'auto' : 'none' }}
       >
         <ControlPanelTrigger onFocus={onFocus} onBlur={onBlur}>
