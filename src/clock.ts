@@ -147,10 +147,10 @@ export const defaultClockStyle: ClockStyle = {
   rimLightMaxAlphaNear: 1,
 
   hourHandColor: '#f5f5f5',
-  hourHandLengthRatio: 0.72,
+  hourHandLengthRatio: 0.751,
   hourHandWidthRatio: 0.115,
   minuteHandColor: '#f5f5f5',
-  minuteHandLengthRatio: 0.92,
+  minuteHandLengthRatio: 0.96,
   minuteHandWidthRatio: 0.115,
 }
 
