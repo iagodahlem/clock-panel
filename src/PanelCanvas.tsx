@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPanelController, formatHHMM, parseHHMM, type DigitTuple } from './controller'
 import type { ClockHandAngles } from './clock'
 import type { IdlePattern } from './idle'
+import { FullscreenButton } from './FullscreenButton'
 
 interface InitialParams {
   readonly timeOverride: DigitTuple | null
@@ -65,6 +66,7 @@ function readInitialParams(search: string): InitialParams {
 
 export function PanelCanvas() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
   const [initial] = useState(() => readInitialParams(window.location.search))
 
   useEffect(() => {
@@ -115,5 +117,10 @@ export function PanelCanvas() {
     // changing prop this effect could close over stale.
   }, [])
 
-  return <canvas ref={canvasRef} />
+  return (
+    <div ref={containerRef} className="panel-container">
+      <canvas ref={canvasRef} />
+      <FullscreenButton containerRef={containerRef} />
+    </div>
+  )
 }
