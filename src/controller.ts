@@ -10,9 +10,18 @@
 // cycle entirely is deliberate: it is what avoids a stale-closure effect or
 // a ref read during render ever reaching into a running animation.
 
-import { drawPanel, type PanelPointer, type PanelPose } from './panel'
+import {
+  drawPanel,
+  computePanelFit,
+  flatPanelCenters,
+  panelDiagonal,
+  lightAngleToward,
+  type ClockLight,
+  type PanelPointer,
+  type PanelPose,
+} from './panel'
 import { digitPose, type Digit, type DigitPose } from './font'
-import { RotationSpring } from './animate'
+import { RotationSpring, type SpringConfig } from './animate'
 import { defaultClockStyle, type ClockHandAngles } from './clock'
 import {
   planDigitTransition,
@@ -34,6 +43,22 @@ import {
 export type DigitTuple = readonly [number, number, number, number]
 
 const CHAR_CODE_ZERO = '0'.charCodeAt(0)
+
+const CLOCKS_PER_PANEL = 24 // 4 digits * 6 clocks
+
+/** Critically damped and quicker than the hands' own default response -- the light should feel like it has real mass without ever feeling sluggish, per the panel's restrained, physical motion language. */
+const lightSpring: SpringConfig = { dampingRatio: 1, response: 0.28 }
+
+/** Inside this many well radii of a clock's own center, the pointer light is at its closest -- full intensity. */
+const LIGHT_NEAR_RADIUS_IN_WELL_RADII = 1.5
+/** Beyond this fraction of the panel's own diagonal, the pointer light has faded all the way back to the resting look. */
+const LIGHT_FAR_RADIUS_PANEL_DIAGONAL_FRACTION = 0.5
+
+/** Cubic Hermite smoothstep, 0 at or before edge0, 1 at or past edge1, clamped between. */
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)))
+  return t * t * (3 - 2 * t)
+}
 
 function assertDigit(value: number): Digit {
   if (!Number.isInteger(value) || value < 0 || value > 9) {
@@ -277,15 +302,16 @@ export function createPanelController(
   }
   reducedMotionQuery.addEventListener('change', onReducedMotionChange)
 
-  // --- Pointer: the panel's light source. Each frame hands the last known
-  // pointer position to drawPanel, which takes the direction from each
-  // clock's own center to it as that clock's light angle, turning the inner
-  // shadow, the bright crescent and the hand shadows together. Kept as a
+  // --- Pointer: the panel's light source. Tracked at the window level, not
+  // just the canvas, so the light exists across the whole page rather than
+  // only while the cursor happens to be over it -- coordinates still
+  // convert into canvas-local space below, the same as before. Kept as a
   // plain local the render loop reads, not state anything re-renders on: a
   // pointermove can fire several times per frame and the loop only needs
-  // wherever it ended up. Null until the first move, which is also what a
-  // device that never sends one keeps seeing -- the resting light angle
-  // from the style. ---
+  // wherever it ended up. Null until the first move, or once the pointer
+  // leaves the window entirely, which is also what a device that never
+  // sends one keeps seeing -- see the light springs below for how that
+  // resolves into the resting light angle rather than a hard cut. ---
 
   let pointer: PanelPointer | null = null
 
@@ -298,12 +324,64 @@ export function createPanelController(
     pointer = { x: event.clientX - rect.left, y: event.clientY - rect.top }
   }
 
-  const onPointerLeave = (): void => {
-    pointer = null
+  // mouseout fires on every element boundary the cursor crosses; a null
+  // relatedTarget is the one case that means it left the browser window
+  // entirely rather than moving onto another element inside it.
+  const onPointerLeaveWindow = (event: MouseEvent): void => {
+    if (event.relatedTarget === null) pointer = null
   }
 
-  canvas.addEventListener('pointermove', onPointerMove)
-  canvas.addEventListener('pointerleave', onPointerLeave)
+  window.addEventListener('pointermove', onPointerMove)
+  document.addEventListener('mouseout', onPointerLeaveWindow)
+
+  // --- Light springs: one per clock, each chasing that clock's own target
+  // light angle -- the direction from its center to the pointer, or the
+  // style's resting angle when there is none -- with real mass, so the
+  // shading visibly trails the cursor by a beat instead of snapping to it.
+  // Reuses RotationSpring exactly as the hands do: unbounded tracking plus
+  // a shortest-path retarget every frame is what keeps a light that circles
+  // a clock from ever crossing its own wrap seam as a visible jump. Each
+  // clock's distance to the pointer additionally sets its own intensity,
+  // scaled smoothly between a near and a far radius -- see panel.ts's
+  // styleWithLight for how angle and intensity combine into a style. ---
+
+  const lightSprings: RotationSpring[] = Array.from(
+    { length: CLOCKS_PER_PANEL },
+    () => new RotationSpring(defaultClockStyle.lightAngle),
+  )
+
+  function updateLights(dt: number): readonly ClockLight[] | null {
+    // Reduced motion opts out of the pointer-follow entirely, not only its
+    // easing: every clock stays on the resting angle from the style, the
+    // same as before a pointer ever moved.
+    if (reducedMotion) return null
+
+    const fit = computePanelFit(logicalWidth, logicalHeight)
+    const centers = flatPanelCenters(fit)
+    const nearRadius = fit.radius * LIGHT_NEAR_RADIUS_IN_WELL_RADII
+    const farRadius = panelDiagonal(fit) * LIGHT_FAR_RADIUS_PANEL_DIAGONAL_FRACTION
+
+    const lights: ClockLight[] = []
+    for (let i = 0; i < lightSprings.length; i++) {
+      const center = centers[i]
+      const spring = lightSprings[i]
+      if (center === undefined || spring === undefined) continue
+
+      let targetAngle = defaultClockStyle.lightAngle
+      let intensity = 0
+
+      if (pointer !== null) {
+        targetAngle = lightAngleToward(center.x, center.y, pointer)
+        const distance = Math.hypot(pointer.x - center.x, pointer.y - center.y)
+        intensity = 1 - smoothstep(nearRadius, farRadius, distance)
+      }
+
+      spring.rotateTo(targetAngle, { direction: 'shortest', spring: lightSpring })
+      spring.update(dt)
+      lights.push({ lightAngle: spring.currentAngle, intensity })
+    }
+    return lights
+  }
 
   // --- Time source and spring state. ---
 
@@ -485,14 +563,8 @@ export function createPanelController(
     // its wells, lit from the style's resting angle, and simply stops
     // having shading that chases the cursor -- the same call this makes for
     // the reduced-motion springs and idle patterns above.
-    drawPanel(
-      ctx,
-      logicalWidth,
-      logicalHeight,
-      pose,
-      defaultClockStyle,
-      reducedMotion ? null : pointer,
-    )
+    const lights = updateLights(dt)
+    drawPanel(ctx, logicalWidth, logicalHeight, pose, defaultClockStyle, lights)
 
     rafId = requestAnimationFrame(frame)
   }
@@ -526,8 +598,8 @@ export function createPanelController(
     doStop()
     window.removeEventListener('resize', resize)
     reducedMotionQuery.removeEventListener('change', onReducedMotionChange)
-    canvas.removeEventListener('pointermove', onPointerMove)
-    canvas.removeEventListener('pointerleave', onPointerLeave)
+    window.removeEventListener('pointermove', onPointerMove)
+    document.removeEventListener('mouseout', onPointerLeaveWindow)
   }
 
   return {

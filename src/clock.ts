@@ -44,9 +44,11 @@ export interface ClockStyle {
    * Where the light comes from, in the same convention as hand angles:
    * radians, 0 = straight above (12 o'clock), positive rotates clockwise.
    * Drives the inner shadow, the bright crescent and the hand shadows
-   * together. The panel overrides this per clock when a pointer is on the
-   * canvas (see drawPanel), so this value is the resting direction used
-   * before the first pointer move and on devices that never send one.
+   * together. The panel overrides this per clock, spring-eased toward the
+   * pointer whenever one is anywhere in the window (see panel.ts's
+   * styleWithLight and controller.ts's light springs), so this value is the
+   * resting direction used before the first pointer move, once it leaves
+   * the window, and on devices that never send one at all.
    */
   lightAngle: number
 
@@ -96,6 +98,24 @@ export interface ClockStyle {
   /** How far the shadow's softness extends past the hand's own outline, as a ratio of the radius. */
   handShadowBlurRatio: number
 
+  /**
+   * The following three fields are only read by panel.ts's styleWithLight,
+   * never by drawClock directly: they are the far end of an interpolation
+   * range whose near end is the field of the same base name above. As a
+   * pointer-driven light closes in on a clock, panel.ts blends from the
+   * resting value toward these, so the well reads as harder and deeper the
+   * closer the light gets rather than only rotating the same resting look.
+   * At zero intensity (no pointer, or one too far away to matter) the blend
+   * lands exactly on the resting value, so these three change nothing about
+   * how the panel looks before a pointer ever moves.
+   */
+  /** Upper end of wellShadowGain's range at closest approach: tightens the shadow's falloff shoulder further than the resting value already does. */
+  wellShadowGainNear: number
+  /** Upper end of wellShadowWidthRatio's range at closest approach: the shadow reaches further in from the rim. */
+  wellShadowWidthRatioNear: number
+  /** Upper end of rimLightMaxAlpha's range at closest approach: the crescent brightens past its resting peak. */
+  rimLightMaxAlphaNear: number
+
   hourHandColor: string
   hourHandLengthRatio: number
   hourHandWidthRatio: number
@@ -122,12 +142,16 @@ export const defaultClockStyle: ClockStyle = {
   handShadowOffsetRatio: 0.3,
   handShadowBlurRatio: 0.1,
 
+  wellShadowGainNear: 2.6,
+  wellShadowWidthRatioNear: 0.52,
+  rimLightMaxAlphaNear: 1,
+
   hourHandColor: '#f5f5f5',
-  hourHandLengthRatio: 0.7,
-  hourHandWidthRatio: 0.16,
+  hourHandLengthRatio: 0.72,
+  hourHandWidthRatio: 0.115,
   minuteHandColor: '#f5f5f5',
-  minuteHandLengthRatio: 0.9,
-  minuteHandWidthRatio: 0.16,
+  minuteHandLengthRatio: 0.92,
+  minuteHandWidthRatio: 0.115,
 }
 
 /** Concentric passes the inner shadow's radial falloff is built from. Capped down on small clocks so no pass lands thinner than about a pixel. */
