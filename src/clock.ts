@@ -44,9 +44,11 @@ export interface ClockStyle {
    * Where the light comes from, in the same convention as hand angles:
    * radians, 0 = straight above (12 o'clock), positive rotates clockwise.
    * Drives the inner shadow, the bright crescent and the hand shadows
-   * together. The panel overrides this per clock when a pointer is on the
-   * canvas (see drawPanel), so this value is the resting direction used
-   * before the first pointer move and on devices that never send one.
+   * together. The panel overrides this per clock, spring-eased toward the
+   * pointer whenever one is anywhere in the window (see panel.ts's
+   * styleWithLight and controller.ts's light springs), so this value is the
+   * resting direction used before the first pointer move, once it leaves
+   * the window, and on devices that never send one at all.
    */
   lightAngle: number
 
@@ -95,6 +97,42 @@ export interface ClockStyle {
   handShadowOffsetRatio: number
   /** How far the shadow's softness extends past the hand's own outline, as a ratio of the radius. */
   handShadowBlurRatio: number
+  /**
+   * Corner radius on each hand's own 4 corners, as a ratio of that hand's
+   * width. Small on purpose -- a bar with a rounded-rect end, not a pill:
+   * the reference clock's hands are flat bars with a barely-there chamfer,
+   * not semicircular round caps.
+   */
+  handCornerRadiusRatio: number
+  /**
+   * Radius of a true semicircular cap on the minute hand's pivot-side end
+   * only, as a ratio of the minute hand's own width -- 0.5 is a full round
+   * cap. Unlike handCornerRadiusRatio's chamfer, this also pushes the bar's
+   * near edge back past the pivot by the same radius (the way a round line
+   * cap extends past its endpoint), which is what lets the cap read as a
+   * soft nub peeking past the hour hand's square corner in the reference
+   * rather than sitting flush with it. The hour hand, and the minute hand's
+   * own tip, keep the flat chamfer above instead.
+   */
+  minuteHandPivotCapRadiusRatio: number
+
+  /**
+   * The following three fields are only read by panel.ts's styleWithLight,
+   * never by drawClock directly: they are the far end of an interpolation
+   * range whose near end is the field of the same base name above. As a
+   * pointer-driven light closes in on a clock, panel.ts blends from the
+   * resting value toward these, so the well reads as harder and deeper the
+   * closer the light gets rather than only rotating the same resting look.
+   * At zero intensity (no pointer, or one too far away to matter) the blend
+   * lands exactly on the resting value, so these three change nothing about
+   * how the panel looks before a pointer ever moves.
+   */
+  /** Upper end of wellShadowGain's range at closest approach: tightens the shadow's falloff shoulder further than the resting value already does. */
+  wellShadowGainNear: number
+  /** Upper end of wellShadowWidthRatio's range at closest approach: the shadow reaches further in from the rim. */
+  wellShadowWidthRatioNear: number
+  /** Upper end of rimLightMaxAlpha's range at closest approach: the crescent brightens past its resting peak. */
+  rimLightMaxAlphaNear: number
 
   hourHandColor: string
   hourHandLengthRatio: number
@@ -114,20 +152,26 @@ export const defaultClockStyle: ClockStyle = {
   wellShadowFalloffPower: 0.6,
   wellShadowAmbient: 0.22,
 
-  rimLightWidthRatio: 0.022,
-  rimLightMaxAlpha: 0.85,
+  rimLightWidthRatio: 0.018,
+  rimLightMaxAlpha: 0.5,
   rimLightFalloffPower: 10,
 
-  handShadowMaxAlpha: 0.8,
-  handShadowOffsetRatio: 0.3,
-  handShadowBlurRatio: 0.1,
+  handShadowMaxAlpha: 0.22,
+  handShadowOffsetRatio: 0.018,
+  handShadowBlurRatio: 0.016,
+  handCornerRadiusRatio: 0.08,
+  minuteHandPivotCapRadiusRatio: 0.5,
+
+  wellShadowGainNear: 1.9,
+  wellShadowWidthRatioNear: 0.46,
+  rimLightMaxAlphaNear: 0.65,
 
   hourHandColor: '#f5f5f5',
-  hourHandLengthRatio: 0.7,
-  hourHandWidthRatio: 0.16,
+  hourHandLengthRatio: 0.831,
+  hourHandWidthRatio: 0.214,
   minuteHandColor: '#f5f5f5',
-  minuteHandLengthRatio: 0.9,
-  minuteHandWidthRatio: 0.16,
+  minuteHandLengthRatio: 0.957,
+  minuteHandWidthRatio: 0.214,
 }
 
 /** Concentric passes the inner shadow's radial falloff is built from. Capped down on small clocks so no pass lands thinner than about a pixel. */
@@ -332,32 +376,102 @@ function drawHandShadow(
   }
 }
 
+/** A point in canvas space. */
+interface Point {
+  readonly x: number
+  readonly y: number
+}
+
 /**
- * One hand, as a square-tipped segment from the center. `lineCap` is 'butt'
- * on purpose: the tip is a flat edge, and the only rounded end is the hub
- * drawn once after both hands, not a cap on each. `width` arrives already
- * clamped by the caller, so the hub can be sized from the same number the
- * strokes actually used.
+ * The 4 corners of a hand's own bar, in canvas space: a `width`-wide
+ * rectangle running from `nearDistance` to `farDistance` along `angle`,
+ * wound so consecutive points are edges of the rectangle (near/+side,
+ * far/+side, far/-side, near/-side) -- the order tracePolygon needs to
+ * round every corner correctly. `nearDistance` is normally 0 (the bar
+ * starts at the pivot) but goes negative for the minute hand's pivot-side
+ * cap, which extends back past the pivot. Uses the same sin/cos pair as
+ * the rest of this module for the along-hand direction, and its
+ * perpendicular (rotate a quarter turn: (dx, dy) -> (-dy, dx)) for the
+ * width direction.
+ */
+function handCorners(
+  cx: number,
+  cy: number,
+  angle: number,
+  nearDistance: number,
+  farDistance: number,
+  width: number,
+): readonly [Point, Point, Point, Point] {
+  const dx = Math.sin(angle)
+  const dy = -Math.cos(angle)
+  const px = -dy
+  const py = dx
+  const half = width / 2
+  return [
+    { x: cx + dx * nearDistance + px * half, y: cy + dy * nearDistance + py * half },
+    { x: cx + dx * farDistance + px * half, y: cy + dy * farDistance + py * half },
+    { x: cx + dx * farDistance - px * half, y: cy + dy * farDistance - py * half },
+    { x: cx + dx * nearDistance - px * half, y: cy + dy * nearDistance - py * half },
+  ]
+}
+
+/**
+ * Traces a rounded polygon through `points` on `ctx`'s current path, one
+ * corner radius per vertex (matching `points`' own order), via the standard
+ * arcTo trick: start at the midpoint of the closing edge (so the first
+ * corner rounds the same as every other one, with no special case) and
+ * arcTo each vertex in turn -- arcTo draws the line up to where the
+ * rounding starts and the arc itself, tangent to the two segments meeting
+ * at that vertex. Per-corner radii (rather than one radius for the whole
+ * polygon) are what let the minute hand's pivot-side corners round to a
+ * full semicircle while its tip stays a small chamfer. Takes fixed
+ * 4-tuples rather than arbitrary arrays so every point and radius is
+ * known-defined without a runtime check -- this only ever traces a hand's
+ * own 4 corners.
+ */
+function tracePolygon(
+  ctx: CanvasRenderingContext2D,
+  points: readonly [Point, Point, Point, Point],
+  radii: readonly [number, number, number, number],
+): void {
+  const [p0, p1, p2, p3] = points
+  const last = p3
+  const first = p0
+  ctx.beginPath()
+  ctx.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2)
+  for (const [point, next, radius] of [
+    [p0, p1, radii[0]],
+    [p1, p2, radii[1]],
+    [p2, p3, radii[2]],
+    [p3, p0, radii[3]],
+  ] as const) {
+    ctx.arcTo(point.x, point.y, next.x, next.y, radius)
+  }
+  ctx.closePath()
+}
+
+/**
+ * One hand, as a flat bar from `nearDistance` (0 for the hour hand, a
+ * negative pivot overhang for the minute hand's round cap) out to `length`,
+ * with `cornerRadii` chamfering each of its 4 corners individually. Two
+ * hands of this shape simply overlap at the center (the near-pivot corners
+ * are always covered by whichever hand is drawn on top of them), which is
+ * what stands in for a hub: no separate joint piece is drawn.
  */
 function drawHand(
   ctx: CanvasRenderingContext2D,
   cx: number,
   cy: number,
   angle: number,
+  nearDistance: number,
   length: number,
   width: number,
+  cornerRadii: readonly [number, number, number, number],
   color: string,
 ): void {
-  const x = cx + Math.sin(angle) * length
-  const y = cy - Math.cos(angle) * length
-
-  ctx.beginPath()
-  ctx.moveTo(cx, cy)
-  ctx.lineTo(x, y)
-  ctx.lineCap = 'butt'
-  ctx.lineWidth = width
-  ctx.strokeStyle = color
-  ctx.stroke()
+  tracePolygon(ctx, handCorners(cx, cy, angle, nearDistance, length, width), cornerRadii)
+  ctx.fillStyle = color
+  ctx.fill()
 }
 
 /**
@@ -385,38 +499,62 @@ export function drawClock(
   ctx.fill()
 
   drawWellShadow(ctx, cx, cy, radius, style)
+  drawRimHighlight(ctx, cx, cy, radius, style)
 
-  // Hands, then the one hub they share. Clamping both widths here rather
-  // than inside drawHand is what lets the hub be sized off the same clamped
-  // number the strokes actually used: at the smallest clock sizes the clamp
-  // *is* the width, and a hub sized from the raw ratio would disappear
-  // inside the hands it is supposed to round off.
   const hourWidth = Math.max(1, radius * style.hourHandWidthRatio)
   const minuteWidth = Math.max(1, radius * style.minuteHandWidthRatio)
-  const hubRadius = Math.max(hourWidth, minuteWidth) / 2
   const hourLength = radius * style.hourHandLengthRatio
   const minuteLength = radius * style.minuteHandLengthRatio
+  const hourCornerRadius = hourWidth * style.handCornerRadiusRatio
+  const minuteCornerRadius = minuteWidth * style.handCornerRadiusRatio
+  const minutePivotCapRadius = minuteWidth * style.minuteHandPivotCapRadiusRatio
 
-  // Hand shadows, all of them before any hand: each layer is translucent,
-  // so a shadow drawn after a hand would darken the hand it fell across.
-  // Stacking the same alpha several times reaches the peak asked for --
-  // hence the per-layer alpha rather than the peak itself. Clipped to the
-  // face, and only here: a hand pointing away from the light throws its
-  // shadow into the far wall, and without the clip the tail of it would
-  // land outside the disc as a smudge on the page. Everything else on the
-  // face is stroked flush to the edge already, so keeping the clip off
-  // those passes keeps the crescent's outer edge antialiased by the stroke
-  // rather than cut by a clip path.
+  // Each hand's shadow is drawn immediately before that hand, not both
+  // shadows before both hands: the minute hand sits in front of the hour
+  // hand, so its shadow has to fall across the hour hand too, the same way
+  // it falls across the face. Drawing hour-shadow, hour-hand, then
+  // minute-shadow, minute-hand is what lets the minute shadow paint over
+  // the now-opaque hour hand and read as one hand raised above the other,
+  // rather than two independent shadows that never interact. Each shadow
+  // pass is translucent, so it would darken a hand drawn before it -- which
+  // is exactly the effect wanted for the hour hand, and exactly why the
+  // hour shadow has nothing to fall across yet.
+  //
+  // Both passes clip to the face, and only here: a hand pointing away from
+  // the light throws its shadow into the far wall, and without the clip the
+  // tail of it would land outside the disc as a smudge on the page.
+  // Everything else on the face is stroked flush to the edge already, so
+  // keeping the clip off those passes keeps the crescent's outer edge
+  // antialiased by the stroke rather than cut by a clip path.
   const offset = handShadowOffset(style.lightAngle, radius, style)
   const blur = radius * style.handShadowBlurRatio
   const layerAlpha = 1 - (1 - style.handShadowMaxAlpha) ** (1 / HAND_SHADOW_STEPS)
   const shadowX = cx + offset.x
   const shadowY = cy + offset.y
+
   ctx.save()
   ctx.beginPath()
   ctx.arc(cx, cy, radius, 0, TAU)
   ctx.clip()
   drawHandShadow(ctx, shadowX, shadowY, angles.hourAngle, hourLength, hourWidth, blur, layerAlpha)
+  ctx.restore()
+
+  drawHand(
+    ctx,
+    cx,
+    cy,
+    angles.hourAngle,
+    0,
+    hourLength,
+    hourWidth,
+    [hourCornerRadius, hourCornerRadius, hourCornerRadius, hourCornerRadius],
+    style.hourHandColor,
+  )
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius, 0, TAU)
+  ctx.clip()
   drawHandShadow(
     ctx,
     shadowX,
@@ -429,19 +567,17 @@ export function drawClock(
   )
   ctx.restore()
 
-  drawRimHighlight(ctx, cx, cy, radius, style)
-
-  drawHand(ctx, cx, cy, angles.hourAngle, hourLength, hourWidth, style.hourHandColor)
-  drawHand(ctx, cx, cy, angles.minuteAngle, minuteLength, minuteWidth, style.minuteHandColor)
-
-  // The rounded end both hands share: a filled circle at the center, the
-  // wider hand's width across. Drawn after both so it rounds off whichever
-  // was drawn first as well, and in the minute hand's color since that is
-  // the hand it always has to disappear into.
-  ctx.beginPath()
-  ctx.arc(cx, cy, hubRadius, 0, TAU)
-  ctx.fillStyle = style.minuteHandColor
-  ctx.fill()
+  drawHand(
+    ctx,
+    cx,
+    cy,
+    angles.minuteAngle,
+    -minutePivotCapRadius,
+    minuteLength,
+    minuteWidth,
+    [minutePivotCapRadius, minuteCornerRadius, minuteCornerRadius, minutePivotCapRadius],
+    style.minuteHandColor,
+  )
 
   ctx.restore()
 }

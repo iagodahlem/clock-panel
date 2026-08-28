@@ -34,7 +34,7 @@ const DIGIT_GAP_UNITS = 1.3
 /** The panel fills this fraction of the fitted bounding box, leaving a small margin on every side. */
 const FIT_MARGIN = 0.92
 
-interface ClockCenter {
+export interface ClockCenter {
   readonly x: number
   readonly y: number
 }
@@ -43,6 +43,18 @@ interface ClockCenter {
 export interface PanelPointer {
   readonly x: number
   readonly y: number
+}
+
+/**
+ * The resolved light one clock draws with, computed once per frame in
+ * controller.ts from that clock's own spring-eased angle and its distance
+ * to the pointer. `intensity` is 0-1: 0 leaves the style's resting look
+ * untouched, 1 is as close as the near/far radii let it get. See
+ * styleWithLight for how the two combine.
+ */
+export interface ClockLight {
+  readonly lightAngle: number
+  readonly intensity: number
 }
 
 /** One center per digit node, in the same fixed order as font.ts's DigitPose: top-left, top-right, mid-left, mid-right, bottom-left, bottom-right. */
@@ -89,7 +101,7 @@ const PANEL_CENTERS: readonly [DigitCenters, DigitCenters, DigitCenters, DigitCe
   digitCenters(3),
 ]
 
-interface Fit {
+export interface Fit {
   readonly scale: number
   readonly radius: number
   readonly originX: number
@@ -108,6 +120,30 @@ function computeFit(canvasWidth: number, canvasHeight: number): Fit {
   }
 }
 
+/** Public entry point for computeFit -- controller.ts needs the same fit drawPanel itself resolves, to place its light springs' targets at the same clock centers drawPanel will actually draw at. */
+export function computePanelFit(canvasWidth: number, canvasHeight: number): Fit {
+  return computeFit(canvasWidth, canvasHeight)
+}
+
+/** Every clock's center in real pixel space for a given fit, flattened in the same digit-major, TL/TR/ML/MR/BL/BR order drawPanel iterates -- index i here is the clock drawPanel's own `lights[i]` applies to. */
+export function flatPanelCenters(fit: Fit): readonly ClockCenter[] {
+  const centers: ClockCenter[] = []
+  for (const digitCenters of PANEL_CENTERS) {
+    for (const center of digitCenters) {
+      centers.push({
+        x: fit.originX + center.x * fit.scale,
+        y: fit.originY + center.y * fit.scale,
+      })
+    }
+  }
+  return centers
+}
+
+/** The panel's own visual bounding box diagonal, in real pixels, for a given fit -- controller.ts sizes the far edge of the pointer-light falloff off this rather than the canvas, so the ramp scales with the panel itself and not with empty margin around it. */
+export function panelDiagonal(fit: Fit): number {
+  return Math.hypot(PANEL_VISUAL_WIDTH_UNITS * fit.scale, PANEL_VISUAL_HEIGHT_UNITS * fit.scale)
+}
+
 /**
  * The clock-angle from one clock's own center toward the pointer: radians,
  * 0 = 12 o'clock, positive clockwise -- the same convention the hands and
@@ -123,21 +159,30 @@ export function lightAngleToward(cx: number, cy: number, pointer: PanelPointer):
   return Math.atan2(pointer.x - cx, cy - pointer.y)
 }
 
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t
+}
+
 /**
- * The style one clock draws with: the shared style untouched when no pointer
- * is on the canvas, or a copy with its light aimed at the pointer when there
- * is one. One field, because one field is the whole lighting model -- the
- * inner shadow, the bright crescent and the hand shadows are all derived
- * from lightAngle inside drawClock, so they can never drift apart.
+ * The style one clock draws with: the shared style untouched when this
+ * clock has no light of its own (null -- the resting look, same as before a
+ * pointer ever moved), or a copy with its angle aimed per `light.lightAngle`
+ * and, as `light.intensity` climbs toward 1, blended toward the style's
+ * "Near" fields -- a harder, deeper look for a light that has closed in.
+ * Direction and depth are the same physical thing changing together as a
+ * point light approaches a well, hence the one function for both.
  */
-function styleLitToward(
-  style: ClockStyle,
-  cx: number,
-  cy: number,
-  pointer: PanelPointer | null,
-): ClockStyle {
-  if (pointer === null) return style
-  return { ...style, lightAngle: lightAngleToward(cx, cy, pointer) }
+function styleWithLight(style: ClockStyle, light: ClockLight | null): ClockStyle {
+  if (light === null) return style
+  const mix = Math.min(1, Math.max(0, light.intensity))
+  if (mix === 0) return { ...style, lightAngle: light.lightAngle }
+  return {
+    ...style,
+    lightAngle: light.lightAngle,
+    wellShadowGain: lerp(style.wellShadowGain, style.wellShadowGainNear, mix),
+    wellShadowWidthRatio: lerp(style.wellShadowWidthRatio, style.wellShadowWidthRatioNear, mix),
+    rimLightMaxAlpha: lerp(style.rimLightMaxAlpha, style.rimLightMaxAlphaNear, mix),
+  }
 }
 
 function drawOne(
@@ -146,11 +191,11 @@ function drawOne(
   center: ClockCenter,
   angles: ClockHandAngles,
   style: ClockStyle,
-  pointer: PanelPointer | null,
+  light: ClockLight | null,
 ): void {
   const cx = fit.originX + center.x * fit.scale
   const cy = fit.originY + center.y * fit.scale
-  drawClock(ctx, cx, cy, fit.radius, angles, styleLitToward(style, cx, cy, pointer))
+  drawClock(ctx, cx, cy, fit.radius, angles, styleWithLight(style, light))
 }
 
 function drawDigit(
@@ -159,27 +204,30 @@ function drawDigit(
   centers: DigitCenters,
   angles: DigitPose,
   style: ClockStyle,
-  pointer: PanelPointer | null,
+  lights: readonly ClockLight[] | null,
+  baseIndex: number,
 ): void {
   const [centerTL, centerTR, centerML, centerMR, centerBL, centerBR] = centers
   const [poseTL, poseTR, poseML, poseMR, poseBL, poseBR] = angles
-  drawOne(ctx, fit, centerTL, poseTL, style, pointer)
-  drawOne(ctx, fit, centerTR, poseTR, style, pointer)
-  drawOne(ctx, fit, centerML, poseML, style, pointer)
-  drawOne(ctx, fit, centerMR, poseMR, style, pointer)
-  drawOne(ctx, fit, centerBL, poseBL, style, pointer)
-  drawOne(ctx, fit, centerBR, poseBR, style, pointer)
+  const at = (offset: number): ClockLight | null => lights?.[baseIndex + offset] ?? null
+  drawOne(ctx, fit, centerTL, poseTL, style, at(0))
+  drawOne(ctx, fit, centerTR, poseTR, style, at(1))
+  drawOne(ctx, fit, centerML, poseML, style, at(2))
+  drawOne(ctx, fit, centerMR, poseMR, style, at(3))
+  drawOne(ctx, fit, centerBL, poseBL, style, at(4))
+  drawOne(ctx, fit, centerBR, poseBR, style, at(5))
 }
 
 /**
  * Draws the full 24-clock time panel, fit to and centered within a canvas
  * of the given logical (CSS) pixel size.
  *
- * `pointer`, when given, makes that position the panel's light source: every
- * clock takes the direction from its own center to the pointer as its light
- * angle, so the shading of all 24 turns together as it moves. Pass null (the
- * default) for the resting look: every clock lit from the shared style's own
- * lightAngle, which is what a device that never sends a pointer keeps seeing.
+ * `lights`, when given, is one ClockLight per clock (see flatPanelCenters
+ * for the index order) -- each clock's own spring-eased angle and pointer-
+ * distance intensity, computed once per frame in controller.ts. Pass null
+ * (the default) for the resting look: every clock lit from the shared
+ * style's own lightAngle with no intensity boost, which is what a device
+ * that never sends a pointer, or a panel under reduced motion, keeps seeing.
  */
 export function drawPanel(
   ctx: CanvasRenderingContext2D,
@@ -187,13 +235,13 @@ export function drawPanel(
   canvasHeight: number,
   pose: PanelPose,
   style: ClockStyle = defaultClockStyle,
-  pointer: PanelPointer | null = null,
+  lights: readonly ClockLight[] | null = null,
 ): void {
   const fit = computeFit(canvasWidth, canvasHeight)
   const [centers0, centers1, centers2, centers3] = PANEL_CENTERS
   const [pose0, pose1, pose2, pose3] = pose
-  drawDigit(ctx, fit, centers0, pose0, style, pointer)
-  drawDigit(ctx, fit, centers1, pose1, style, pointer)
-  drawDigit(ctx, fit, centers2, pose2, style, pointer)
-  drawDigit(ctx, fit, centers3, pose3, style, pointer)
+  drawDigit(ctx, fit, centers0, pose0, style, lights, 0)
+  drawDigit(ctx, fit, centers1, pose1, style, lights, 6)
+  drawDigit(ctx, fit, centers2, pose2, style, lights, 12)
+  drawDigit(ctx, fit, centers3, pose3, style, lights, 18)
 }
