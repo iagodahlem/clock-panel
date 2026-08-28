@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createPanelController, formatHHMM, parseHHMM, type DigitTuple } from './controller'
+import type { ClockHandAngles } from './clock'
 import type { IdlePattern } from './idle'
 
 interface InitialParams {
@@ -18,6 +19,7 @@ interface InitialParams {
   readonly toOverride: DigitTuple | null
   readonly idleOverride: IdlePattern | null
   readonly lightForce: boolean
+  readonly handsOverride: ClockHandAngles | null
 }
 
 function parseIdleParam(raw: string | null): IdlePattern | null {
@@ -25,9 +27,29 @@ function parseIdleParam(raw: string | null): IdlePattern | null {
 }
 
 /**
- * Reads ?time=/?to=/?idle=/?light= once. Matches main.ts's original query
- * contract exactly: ?to= only takes effect when ?time= is also present and
- * valid.
+ * Parses `?hands=<hourDegrees>,<minuteDegrees>` into clock-convention
+ * radians (0 = 12 o'clock, positive clockwise) -- e.g. `270,180` pins the
+ * hour hand to 9 o'clock and the minute hand to 6 o'clock. Dev/demo tool
+ * and the binding way to verify hand geometry against a static reference:
+ * every clock on the panel snaps to this exact pose and holds it, instead
+ * of the live clock or any choreography, so a single well can be
+ * screenshotted at a known angle. Returns null for anything else.
+ */
+function parseHandsParam(raw: string | null): ClockHandAngles | null {
+  if (raw === null) return null
+  const match = /^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(raw)
+  if (match === null) return null
+  const [, hourDegrees, minuteDegrees] = match
+  return {
+    hourAngle: (Number(hourDegrees) * Math.PI) / 180,
+    minuteAngle: (Number(minuteDegrees) * Math.PI) / 180,
+  }
+}
+
+/**
+ * Reads ?time=/?to=/?idle=/?light=/?hands= once. Matches main.ts's original
+ * query contract exactly: ?to= only takes effect when ?time= is also
+ * present and valid.
  */
 function readInitialParams(search: string): InitialParams {
   const params = new URLSearchParams(search)
@@ -37,7 +59,8 @@ function readInitialParams(search: string): InitialParams {
   const toOverride = timeOverride !== null && toRaw !== null ? parseHHMM(toRaw) : null
   const idleOverride = parseIdleParam(params.get('idle'))
   const lightForce = params.get('light') === 'force'
-  return { timeOverride, toOverride, idleOverride, lightForce }
+  const handsOverride = parseHandsParam(params.get('hands'))
+  return { timeOverride, toOverride, idleOverride, lightForce, handsOverride }
 }
 
 export function PanelCanvas() {
@@ -51,6 +74,7 @@ export function PanelCanvas() {
     const controller = createPanelController(canvas, {
       initialDigits: initial.timeOverride ?? undefined,
       lightForce: initial.lightForce,
+      handsForce: initial.handsOverride,
     })
 
     // QA affordance: with both ?time= and ?to= set, any key press or click

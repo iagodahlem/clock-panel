@@ -227,6 +227,14 @@ export interface PanelControllerOptions {
    * choreography -- stays gated exactly as it is when this is false.
    */
   readonly lightForce?: boolean
+  /**
+   * Pins every clock's hands to this exact pose every frame (`?hands=`),
+   * overriding the live clock, springs and choreography entirely for the
+   * whole panel -- a dev/demo tool for reviewing hand geometry against a
+   * static reference at a known angle. The pointer light keeps running as
+   * usual underneath it. Omit or pass null for the normal, time-driven pose.
+   */
+  readonly handsForce?: ClockHandAngles | null
 }
 
 export interface PanelControllerState {
@@ -358,6 +366,19 @@ export function createPanelController(
   )
 
   const lightForce = options.lightForce ?? false
+
+  // --- Hands-force (`?hands=`): every clock, every digit, pinned to the
+  // same angles for as long as this controller lives -- set once at
+  // construction, same as lightForce, since this is a dev/demo override
+  // rather than a live setting. When set, a constant DigitPose (all 6
+  // clocks in a digit at the same forced angles) stands in for the
+  // spring-driven pose the render loop would otherwise read every frame. ---
+
+  const handsForce = options.handsForce ?? null
+  const forcedDigitPose: DigitPose | null =
+    handsForce === null
+      ? null
+      : [handsForce, handsForce, handsForce, handsForce, handsForce, handsForce]
 
   function updateLights(dt: number): readonly ClockLight[] | null {
     // Reduced motion opts out of the pointer-follow entirely, not only its
@@ -564,12 +585,15 @@ export function createPanelController(
     }
 
     ctx.clearRect(0, 0, logicalWidth, logicalHeight)
-    const pose: PanelPose = [
-      digitSpringAngles(springs[0]),
-      digitSpringAngles(springs[1]),
-      digitSpringAngles(springs[2]),
-      digitSpringAngles(springs[3]),
-    ]
+    const pose: PanelPose =
+      forcedDigitPose !== null
+        ? [forcedDigitPose, forcedDigitPose, forcedDigitPose, forcedDigitPose]
+        : [
+            digitSpringAngles(springs[0]),
+            digitSpringAngles(springs[1]),
+            digitSpringAngles(springs[2]),
+            digitSpringAngles(springs[3]),
+          ]
     // Reduced motion drops the pointer, not the lighting: the panel keeps
     // its wells, lit from the style's resting angle, and simply stops
     // having shading that chases the cursor -- the same call this makes for
