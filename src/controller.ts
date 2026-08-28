@@ -310,6 +310,16 @@ export function createPanelController(
   resize()
   window.addEventListener('resize', resize)
 
+  // Entering/exiting fullscreen changes the viewport size the same way a
+  // window resize does, and most browsers also fire their own 'resize'
+  // event for it -- but that pairing isn't guaranteed to be synchronous
+  // with the dimension change across browsers, so this calls resize()
+  // directly off fullscreenchange rather than trusting 'resize' alone to
+  // catch the jump.
+  const onFullscreenChange = (): void => resize()
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+  document.addEventListener('webkitfullscreenchange', onFullscreenChange)
+
   const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
   let reducedMotion = reducedMotionQuery.matches
   const onReducedMotionChange = (event: MediaQueryListEvent): void => {
@@ -632,6 +642,8 @@ export function createPanelController(
     destroyed = true
     doStop()
     window.removeEventListener('resize', resize)
+    document.removeEventListener('fullscreenchange', onFullscreenChange)
+    document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
     reducedMotionQuery.removeEventListener('change', onReducedMotionChange)
     window.removeEventListener('pointermove', onPointerMove)
     document.removeEventListener('mouseout', onPointerLeaveWindow)
