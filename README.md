@@ -13,7 +13,7 @@ pnpm install
 pnpm dev
 ```
 
-Open the URL it prints. The panel shows the current local time and keeps ticking as the minute changes. Append `?time=HHMM` or `?time=HH:MM` to the URL (e.g. `?time=13:45`) to override the displayed time with any 4 digits, for reviewing the digit font. Add a second `?to=HHMM` alongside it (e.g. `?time=13:45&to=13:46`) and any key press or click transitions the panel between the two, for watching the choreography on demand. Between minute changes the panel occasionally plays a short ambient hand pattern on its own; append `?idle=wave`, `?idle=breathe`, or `?idle=cascade` and any key press or click plays that pattern once on demand instead of waiting for it.
+Open the URL it prints. The panel shows the current local time and keeps ticking as the minute changes. Append `?time=HHMM` or `?time=HH:MM` to the URL (e.g. `?time=13:45`) to override the displayed time with any 4 digits, for reviewing the digit font. Add a second `?to=HHMM` alongside it (e.g. `?time=13:45&to=13:46`) and any key press or click transitions the panel between the two, for watching the choreography on demand. Between minute changes the panel occasionally plays a short ambient hand pattern on its own; append `?idle=wave`, `?idle=breathe`, or `?idle=cascade` and any key press or click plays that pattern once on demand instead of waiting for it. Append `?light=force` to keep the pointer light active even with the OS's Reduce Motion setting on, for demoing the light on a machine that has it enabled; every other reduced-motion behavior (hand transitions, idle choreography) stays off.
 
 ## Architecture
 

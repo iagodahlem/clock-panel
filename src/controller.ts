@@ -220,6 +220,13 @@ export interface PanelControllerOptions {
   readonly initialDigits?: DigitTuple
   /** Idle pattern tuning. Defaults to the same tuning idle.ts ships. */
   readonly idleConfig?: IdleConfig
+  /**
+   * Bypasses reduced motion for the pointer light only (`?light=force`), for
+   * demoing the light on a device with Reduce Motion on at the OS level.
+   * Every other reduced-motion behavior -- hand transition springs, idle
+   * choreography -- stays gated exactly as it is when this is false.
+   */
+  readonly lightForce?: boolean
 }
 
 export interface PanelControllerState {
@@ -350,11 +357,15 @@ export function createPanelController(
     () => new RotationSpring(defaultClockStyle.lightAngle),
   )
 
+  const lightForce = options.lightForce ?? false
+
   function updateLights(dt: number): readonly ClockLight[] | null {
     // Reduced motion opts out of the pointer-follow entirely, not only its
     // easing: every clock stays on the resting angle from the style, the
-    // same as before a pointer ever moved.
-    if (reducedMotion) return null
+    // same as before a pointer ever moved. `lightForce` (`?light=force`)
+    // bypasses this one gate for a demo-proof URL; every other
+    // reduced-motion behavior below is untouched by it.
+    if (reducedMotion && !lightForce) return null
 
     const fit = computePanelFit(logicalWidth, logicalHeight)
     const centers = flatPanelCenters(fit)

@@ -17,6 +17,7 @@ interface InitialParams {
   readonly timeOverride: DigitTuple | null
   readonly toOverride: DigitTuple | null
   readonly idleOverride: IdlePattern | null
+  readonly lightForce: boolean
 }
 
 function parseIdleParam(raw: string | null): IdlePattern | null {
@@ -24,8 +25,9 @@ function parseIdleParam(raw: string | null): IdlePattern | null {
 }
 
 /**
- * Reads ?time=/?to=/?idle= once. Matches main.ts's original query contract
- * exactly: ?to= only takes effect when ?time= is also present and valid.
+ * Reads ?time=/?to=/?idle=/?light= once. Matches main.ts's original query
+ * contract exactly: ?to= only takes effect when ?time= is also present and
+ * valid.
  */
 function readInitialParams(search: string): InitialParams {
   const params = new URLSearchParams(search)
@@ -34,7 +36,8 @@ function readInitialParams(search: string): InitialParams {
   const toRaw = params.get('to')
   const toOverride = timeOverride !== null && toRaw !== null ? parseHHMM(toRaw) : null
   const idleOverride = parseIdleParam(params.get('idle'))
-  return { timeOverride, toOverride, idleOverride }
+  const lightForce = params.get('light') === 'force'
+  return { timeOverride, toOverride, idleOverride, lightForce }
 }
 
 export function PanelCanvas() {
@@ -47,6 +50,7 @@ export function PanelCanvas() {
 
     const controller = createPanelController(canvas, {
       initialDigits: initial.timeOverride ?? undefined,
+      lightForce: initial.lightForce,
     })
 
     // QA affordance: with both ?time= and ?to= set, any key press or click
