@@ -104,6 +104,17 @@ export interface ClockStyle {
    * not semicircular round caps.
    */
   handCornerRadiusRatio: number
+  /**
+   * Radius of a true semicircular cap on the minute hand's pivot-side end
+   * only, as a ratio of the minute hand's own width -- 0.5 is a full round
+   * cap. Unlike handCornerRadiusRatio's chamfer, this also pushes the bar's
+   * near edge back past the pivot by the same radius (the way a round line
+   * cap extends past its endpoint), which is what lets the cap read as a
+   * soft nub peeking past the hour hand's square corner in the reference
+   * rather than sitting flush with it. The hour hand, and the minute hand's
+   * own tip, keep the flat chamfer above instead.
+   */
+  minuteHandPivotCapRadiusRatio: number
 
   /**
    * The following three fields are only read by panel.ts's styleWithLight,
@@ -149,6 +160,7 @@ export const defaultClockStyle: ClockStyle = {
   handShadowOffsetRatio: 0.018,
   handShadowBlurRatio: 0.016,
   handCornerRadiusRatio: 0.08,
+  minuteHandPivotCapRadiusRatio: 0.5,
 
   wellShadowGainNear: 1.9,
   wellShadowWidthRatioNear: 0.46,
@@ -372,18 +384,22 @@ interface Point {
 
 /**
  * The 4 corners of a hand's own bar, in canvas space: a `width`-wide
- * rectangle running from the pivot straight out to `length` along `angle`,
+ * rectangle running from `nearDistance` to `farDistance` along `angle`,
  * wound so consecutive points are edges of the rectangle (near/+side,
  * far/+side, far/-side, near/-side) -- the order tracePolygon needs to
- * round every corner correctly. Uses the same sin/cos pair as the rest of
- * this module for the along-hand direction, and its perpendicular
- * (rotate a quarter turn: (dx, dy) -> (-dy, dx)) for the width direction.
+ * round every corner correctly. `nearDistance` is normally 0 (the bar
+ * starts at the pivot) but goes negative for the minute hand's pivot-side
+ * cap, which extends back past the pivot. Uses the same sin/cos pair as
+ * the rest of this module for the along-hand direction, and its
+ * perpendicular (rotate a quarter turn: (dx, dy) -> (-dy, dx)) for the
+ * width direction.
  */
 function handCorners(
   cx: number,
   cy: number,
   angle: number,
-  length: number,
+  nearDistance: number,
+  farDistance: number,
   width: number,
 ): readonly [Point, Point, Point, Point] {
   const dx = Math.sin(angle)
@@ -392,38 +408,42 @@ function handCorners(
   const py = dx
   const half = width / 2
   return [
-    { x: cx + px * half, y: cy + py * half },
-    { x: cx + dx * length + px * half, y: cy + dy * length + py * half },
-    { x: cx + dx * length - px * half, y: cy + dy * length - py * half },
-    { x: cx - px * half, y: cy - py * half },
+    { x: cx + dx * nearDistance + px * half, y: cy + dy * nearDistance + py * half },
+    { x: cx + dx * farDistance + px * half, y: cy + dy * farDistance + py * half },
+    { x: cx + dx * farDistance - px * half, y: cy + dy * farDistance - py * half },
+    { x: cx + dx * nearDistance - px * half, y: cy + dy * nearDistance - py * half },
   ]
 }
 
 /**
- * Traces a rounded polygon through `points` on `ctx`'s current path, corner
- * radius `radius` at every vertex, via the standard arcTo trick: start at
- * the midpoint of the closing edge (so the first corner rounds the same as
- * every other one, with no special case) and arcTo each vertex in turn --
- * arcTo draws the line up to where the rounding starts and the arc itself,
- * tangent to the two segments meeting at that vertex. Takes a fixed 4-tuple
- * rather than an arbitrary array so every point is known-defined without a
- * runtime check -- this only ever traces a hand's own 4 corners.
+ * Traces a rounded polygon through `points` on `ctx`'s current path, one
+ * corner radius per vertex (matching `points`' own order), via the standard
+ * arcTo trick: start at the midpoint of the closing edge (so the first
+ * corner rounds the same as every other one, with no special case) and
+ * arcTo each vertex in turn -- arcTo draws the line up to where the
+ * rounding starts and the arc itself, tangent to the two segments meeting
+ * at that vertex. Per-corner radii (rather than one radius for the whole
+ * polygon) are what let the minute hand's pivot-side corners round to a
+ * full semicircle while its tip stays a small chamfer. Takes fixed
+ * 4-tuples rather than arbitrary arrays so every point and radius is
+ * known-defined without a runtime check -- this only ever traces a hand's
+ * own 4 corners.
  */
 function tracePolygon(
   ctx: CanvasRenderingContext2D,
   points: readonly [Point, Point, Point, Point],
-  radius: number,
+  radii: readonly [number, number, number, number],
 ): void {
   const [p0, p1, p2, p3] = points
   const last = p3
   const first = p0
   ctx.beginPath()
   ctx.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2)
-  for (const [point, next] of [
-    [p0, p1],
-    [p1, p2],
-    [p2, p3],
-    [p3, p0],
+  for (const [point, next, radius] of [
+    [p0, p1, radii[0]],
+    [p1, p2, radii[1]],
+    [p2, p3, radii[2]],
+    [p3, p0, radii[3]],
   ] as const) {
     ctx.arcTo(point.x, point.y, next.x, next.y, radius)
   }
@@ -431,23 +451,25 @@ function tracePolygon(
 }
 
 /**
- * One hand, as a flat bar from the pivot with a small rounded-rect chamfer
- * on all 4 corners -- not a round cap. Two hands of this shape simply
- * overlap at the center (the near-pivot corners are always covered by
- * whichever hand is drawn on top of them), which is what stands in for a
- * hub: no separate joint piece is drawn.
+ * One hand, as a flat bar from `nearDistance` (0 for the hour hand, a
+ * negative pivot overhang for the minute hand's round cap) out to `length`,
+ * with `cornerRadii` chamfering each of its 4 corners individually. Two
+ * hands of this shape simply overlap at the center (the near-pivot corners
+ * are always covered by whichever hand is drawn on top of them), which is
+ * what stands in for a hub: no separate joint piece is drawn.
  */
 function drawHand(
   ctx: CanvasRenderingContext2D,
   cx: number,
   cy: number,
   angle: number,
+  nearDistance: number,
   length: number,
   width: number,
-  cornerRadius: number,
+  cornerRadii: readonly [number, number, number, number],
   color: string,
 ): void {
-  tracePolygon(ctx, handCorners(cx, cy, angle, length, width), cornerRadius)
+  tracePolygon(ctx, handCorners(cx, cy, angle, nearDistance, length, width), cornerRadii)
   ctx.fillStyle = color
   ctx.fill()
 }
@@ -485,6 +507,7 @@ export function drawClock(
   const minuteLength = radius * style.minuteHandLengthRatio
   const hourCornerRadius = hourWidth * style.handCornerRadiusRatio
   const minuteCornerRadius = minuteWidth * style.handCornerRadiusRatio
+  const minutePivotCapRadius = minuteWidth * style.minuteHandPivotCapRadiusRatio
 
   // Each hand's shadow is drawn immediately before that hand, not both
   // shadows before both hands: the minute hand sits in front of the hour
@@ -521,9 +544,10 @@ export function drawClock(
     cx,
     cy,
     angles.hourAngle,
+    0,
     hourLength,
     hourWidth,
-    hourCornerRadius,
+    [hourCornerRadius, hourCornerRadius, hourCornerRadius, hourCornerRadius],
     style.hourHandColor,
   )
 
@@ -548,9 +572,10 @@ export function drawClock(
     cx,
     cy,
     angles.minuteAngle,
+    -minutePivotCapRadius,
     minuteLength,
     minuteWidth,
-    minuteCornerRadius,
+    [minutePivotCapRadius, minuteCornerRadius, minuteCornerRadius, minutePivotCapRadius],
     style.minuteHandColor,
   )
 
