@@ -1,0 +1,112 @@
+@theme inline {
+  /* semantic colors */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* radius. --radius-full is deliberately left unmapped: Tailwind's
+     built-in `rounded-full` (calc(infinity * 1px)) is already a strict
+     superset of a fixed 999px-style pill radius, so mapping one here
+     would replace it with a capped value for no visual gain — same
+     reasoning DomainProof's theme.css documents for its own
+     --radius-full. */
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+
+  /* fonts */
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+
+  /* shadows */
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+
+  /* motion. --duration-* is intentionally NOT mapped here: Tailwind v4's
+     transition-duration utility is a purely numeric functional utility
+     (duration-150 -> 150ms) that never consults a --duration-* theme
+     key, so a mapping would compile to a dead custom property with no
+     generated class (same finding DomainProof's theme.css documents for
+     its own --duration-fast). Call sites use Tailwind's built-in
+     duration-150 / duration-200 instead, which match these tokens'
+     values exactly. --ease-standard DOES map, onto Tailwind's `ease-*`
+     namespace, giving an `ease-standard` utility. */
+  --ease-standard: var(--ease-standard);
+
+  /* Custom animation registered for registry/ui/status-dot.tsx's `live`
+     variant. A registry item's own .tsx file can't introduce a global
+     `@keyframes` rule into a consumer's build — Tailwind v4's `--animate-*`
+     theme key is the supported mechanism for a component to ship a named
+     animation utility (`animate-status-dot-pulse`) through this shared
+     mapping layer every consumer already installs, same way DomainProof's
+     own theme.css registers component-specific custom properties here
+     rather than duplicating them per component. Values match the two
+     source mocks' shared `@keyframes pilot`/motion status pulse: 2.4s,
+     ease-in-out, looping, full opacity to 42% and back. */
+  --animate-status-dot-pulse: status-dot-pulse 2.4s ease-in-out infinite;
+
+  /* Custom animation registered for registry/ui/preview-frame.tsx's
+     loading skeleton — same mechanism as --animate-status-dot-pulse
+     above, a component-specific keyframe a registry item's own .tsx file
+     can't introduce on its own. Matches the projects mock's own
+     `.frame-skeleton::before` shimmer: 1.6s, looping, sliding fully
+     across the frame. The mock uses its own `--ease-in-out` token for
+     this; that token has no equivalent in theme-contract v1.1 or in
+     theme-iagodahlem's rename table (only `--ease-out` -> `--ease-standard`
+     is mapped there), so this uses the plain CSS `ease-in-out` keyword
+     rather than inventing an undocumented extension token for one
+     animation. */
+  --animate-frame-shimmer: frame-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes status-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.42;
+  }
+}
+
+@keyframes frame-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* registry/ui/preview-frame.tsx's shade overlay lifts on hover, but only
+   on pointers that can actually hover — a tap on a touch device must
+   never trigger it (that would read as a flicker, not feedback). Tailwind
+   has no built-in hover-capability-gated variant, so this is a plain,
+   hand-written media rule rather than a fragile arbitrary-variant class
+   string, registered here for the same reason the keyframes above are:
+   component-specific CSS a single .tsx file can't ship into a consumer's
+   build on its own. Both selectors below matter: the frame's own hover
+   covers `PreviewFrame` used standalone (its own showcase, e.g.), and the
+   card's hover covers it composed inside `ProjectCard` — the mock's own
+   `.card:hover .frame-shade` rule lifts the shade even when the pointer
+   is over the card's text, not only the frame itself. */
+@media (hover: hover) and (pointer: fine) {
+  [data-slot="preview-frame"]:hover [data-slot="frame-shade"],
+  [data-slot="project-card"]:hover [data-slot="frame-shade"] {
+    opacity: 0;
+  }
+}

@@ -10,10 +10,17 @@
 // state could.
 
 import { useEffect, useRef, useState } from 'react'
-import { createPanelController, formatHHMM, parseHHMM, type DigitTuple } from './controller'
+import {
+  createPanelController,
+  formatHHMM,
+  parseHHMM,
+  type DigitTuple,
+  type PanelController,
+} from './controller'
 import type { ClockHandAngles } from './clock'
 import type { IdlePattern } from './idle'
 import { FullscreenButton } from './FullscreenButton'
+import { ClockControlPanel } from './ClockControlPanel'
 
 interface InitialParams {
   readonly timeOverride: DigitTuple | null
@@ -67,6 +74,16 @@ function readInitialParams(search: string): InitialParams {
 export function PanelCanvas() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
+  // The control panel drives the controller imperatively too (setTime,
+  // transitionTo, ...), same as the QA trigger below -- a ref, not state,
+  // so wiring it up never re-renders or re-creates the loop. `controllerReady`
+  // exists only so ClockControlPanel's own effect (subscribing to idle
+  // events) knows when the ref has actually been assigned: child effects
+  // run before their parent's in the same commit, so on first mount
+  // controllerRef.current is still null when ClockControlPanel's effect
+  // first runs -- this state flip is what gives it a second chance.
+  const controllerRef = useRef<PanelController | null>(null)
+  const [controllerReady, setControllerReady] = useState(false)
   const [initial] = useState(() => readInitialParams(window.location.search))
 
   useEffect(() => {
@@ -78,6 +95,8 @@ export function PanelCanvas() {
       lightForce: initial.lightForce,
       handsForce: initial.handsOverride,
     })
+    controllerRef.current = controller
+    setControllerReady(true)
 
     // QA affordance: with both ?time= and ?to= set, any key press or click
     // transitions the panel between the two, toggling back and forth, so
@@ -110,6 +129,7 @@ export function PanelCanvas() {
     return () => {
       window.removeEventListener('keydown', handleTrigger)
       window.removeEventListener('click', handleTrigger)
+      controllerRef.current = null
       controller.destroy()
     }
     // Mount-only: `initial` is read once via useState's lazy initializer
@@ -120,6 +140,14 @@ export function PanelCanvas() {
   return (
     <div ref={containerRef} className="panel-container">
       <canvas ref={canvasRef} />
+      <ClockControlPanel
+        controllerRef={controllerRef}
+        controllerReady={controllerReady}
+        initialTime={initial.timeOverride}
+        initialTo={initial.toOverride}
+        initialIdle={initial.idleOverride}
+        initialLightForce={initial.lightForce}
+      />
       <FullscreenButton containerRef={containerRef} />
     </div>
   )

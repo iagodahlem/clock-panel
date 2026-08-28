@@ -1,0 +1,107 @@
+:root {
+  color-scheme: light;
+
+  /* --- core: semantic colors --- */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --surface: oklch(1 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+
+  /* --- derived: semantic colors ---
+     surface-2 steps one elevation above surface, toward foreground.
+     muted/secondary consistently mirror surface-2 across all three v1
+     source systems (base's own former literal values, sitegrade's sg-*
+     block, and DomainProof's tokens.css all set these identically) —
+     genuinely justified, not a guess. input mirrors border everywhere
+     this file's own pre-v1.1 literal values, sitegrade's, and
+     DomainProof's tokens agreed — every case except this theme's own
+     dark input, which carries deliberately more contrast than dark
+     border (see the dark block below, where input reverts to a literal
+     override for that one case). ring defaults to primary — the
+     neutral default has no separate focus-ring hue; themes that want one
+     (sitegrade does) override --ring explicitly. */
+  --surface-2: color-mix(in oklch, var(--surface) 96%, var(--foreground));
+  --muted: var(--surface-2);
+  --secondary: var(--surface-2);
+  --input: var(--border);
+  --ring: var(--primary);
+
+  /* --- core: radius base (internal helper, NOT a contract token) ---
+     Only _defaults.css needs this — it exists purely so the four public
+     radius-* tokens below can be derived via calc() instead of hand-set.
+     A theme is free to ignore it entirely and override radius-sm/md/lg/xl
+     with literal values instead (sitegrade and domainproof both do,
+     because their scales don't fit a single linear step off one base). */
+  --radius: 0.625rem;
+
+  /* --- derived: radius scale ---
+     Reproduces the exact values this file's literal radius-sm/md/lg/xl
+     used to carry pre-v1.1, now expressed as offsets from one base. */
+  --radius-sm: calc(var(--radius) - 0.25rem);
+  --radius-md: calc(var(--radius) - 0.0625rem);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 0.25rem);
+
+  /* --- core: font slots ---
+     No distinct display face in the neutral default; display and body
+     share the same system stack on purpose, expressed below as a
+     derivation rather than a duplicated literal. */
+  --font-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* --- derived: font-display ---
+     Mirrors font-body. Justified the same way as muted/secondary: two of
+     the three v1 source systems (base, domainproof) have no distinct
+     display face at all; only sitegrade does, and sitegrade overrides
+     --font-display explicitly to break from this default. */
+  --font-display: var(--font-body);
+
+  /* --- core: shadow scale — Tailwind's own default shadow-sm/md/lg. --- */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 5%);
+  --shadow-md: 0 1px 3px 0 rgb(0 0 0 / 10%), 0 1px 2px -1px rgb(0 0 0 / 10%);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 10%), 0 4px 6px -4px rgb(0 0 0 / 10%);
+
+  /* --- core: motion --- */
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* --- core: semantic colors --- */
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --surface: oklch(0.205 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+
+  /* --- derived: semantic colors — same formulas as the light block,
+     recomputed against this block's own core values. --- */
+  --surface-2: color-mix(in oklch, var(--surface) 96%, var(--foreground));
+  --muted: var(--surface-2);
+  --secondary: var(--surface-2);
+  /* input departs from the var(--border) derivation here on purpose:
+     dark input carries deliberately more contrast than dark border,
+     matching this theme's own pre-v1.1 literal value — the one mode in
+     the one theme where input and border genuinely diverge. */
+  --input: oklch(1 0 0 / 15%);
+  --ring: var(--primary);
+
+  /* --- core: shadow scale — higher alpha than light to stay legible
+     against a near-black background. --- */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 30%);
+  --shadow-md: 0 1px 3px 0 rgb(0 0 0 / 40%), 0 1px 2px -1px rgb(0 0 0 / 40%);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 40%), 0 4px 6px -4px rgb(0 0 0 / 40%);
+}

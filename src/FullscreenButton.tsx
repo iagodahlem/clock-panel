@@ -1,12 +1,20 @@
-// The panel's only piece of chrome. The page is otherwise a bare canvas, so
-// this fades out after a stretch of pointer inactivity and reappears on
-// movement or focus, the same convention video players use for their
-// controls, rather than sitting on screen permanently.
+// One of the page's two pieces of chrome (the other is the control panel
+// trigger, positioned just to this one's left). The page is otherwise a
+// bare canvas, so this fades out after a stretch of pointer inactivity and
+// reappears on movement or focus, the same convention video players use
+// for their controls, rather than sitting on screen permanently -- see
+// useChromeVisibility for the shared timing both pieces of chrome use.
+//
+// Styled to match ControlPanelTrigger's own glass treatment (see
+// triggerClassName in src/components/control-panel.tsx): same surface,
+// border, and hover tokens, carried over onto a plain circle instead of
+// the trigger's pill since this button holds an icon only, no label.
 
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useState, type RefObject } from 'react'
+import { cn } from '@/lib/cn'
+import { Button } from '@/ui/button'
 import { exitFullscreen, isFullscreen, onFullscreenChange, requestFullscreen } from './fullscreen'
-
-const HIDE_DELAY_MS = 2500
+import { useChromeVisibility } from './useChromeVisibility'
 
 interface FullscreenButtonProps {
   readonly containerRef: RefObject<HTMLElement | null>
@@ -52,37 +60,9 @@ function CompressIcon() {
 
 export function FullscreenButton({ containerRef }: FullscreenButtonProps) {
   const [active, setActive] = useState(false)
-  const [visible, setVisible] = useState(true)
-  const [focused, setFocused] = useState(false)
-  const hideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const { shown, onFocus, onBlur } = useChromeVisibility()
 
   useEffect(() => onFullscreenChange(() => setActive(isFullscreen())), [])
-
-  // Reveal on any pointer activity, then fade back out after a quiet
-  // stretch. Focus (keyboard navigation) is tracked separately below and
-  // overrides this -- a focused control must never fade out from under the
-  // user driving it with a keyboard, which has no "movement" of its own to
-  // reveal it again.
-  useEffect(() => {
-    const scheduleHide = (): void => {
-      if (hideTimeoutRef.current !== null) clearTimeout(hideTimeoutRef.current)
-      hideTimeoutRef.current = setTimeout(() => setVisible(false), HIDE_DELAY_MS)
-    }
-    const reveal = (): void => {
-      setVisible(true)
-      scheduleHide()
-    }
-    reveal()
-    window.addEventListener('pointermove', reveal)
-    window.addEventListener('pointerdown', reveal)
-    return () => {
-      window.removeEventListener('pointermove', reveal)
-      window.removeEventListener('pointerdown', reveal)
-      if (hideTimeoutRef.current !== null) clearTimeout(hideTimeoutRef.current)
-    }
-  }, [])
-
-  const shown = visible || focused
 
   function toggle(event: React.MouseEvent<HTMLButtonElement>): void {
     // Keeps this click from also reaching PanelCanvas's window-level
@@ -98,32 +78,24 @@ export function FullscreenButton({ containerRef }: FullscreenButtonProps) {
   }
 
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
       onClick={toggle}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
+      onFocus={onFocus}
+      onBlur={onBlur}
       aria-label={active ? 'Exit fullscreen' : 'Enter fullscreen'}
-      style={{
-        position: 'fixed',
-        right: '1rem',
-        bottom: '1rem',
-        width: '2.25rem',
-        height: '2.25rem',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        border: 'none',
-        borderRadius: '0.5rem',
-        background: 'rgba(255, 255, 255, 0.08)',
-        color: 'rgba(255, 255, 255, 0.72)',
-        cursor: 'pointer',
-        opacity: shown ? 1 : 0,
-        pointerEvents: shown ? 'auto' : 'none',
-        transition: 'opacity 300ms ease',
-      }}
+      className={cn(
+        'fixed right-4 bottom-4 z-40 size-11 rounded-full',
+        'border border-[var(--border-strong,var(--border))] text-muted-foreground shadow-lg',
+        'bg-[color-mix(in_oklab,var(--surface)_82%,transparent)] backdrop-blur-[22px] backdrop-saturate-150',
+        '[@media(prefers-reduced-transparency:reduce)]:bg-surface [@media(prefers-reduced-transparency:reduce)]:backdrop-filter-none',
+        'hover:bg-[color-mix(in_oklab,var(--surface)_82%,transparent)] hover:text-foreground hover:border-[var(--text-faint,var(--muted-foreground))]',
+        'transition-[color,border-color,opacity,scale] duration-[var(--dur-press,var(--duration-fast))] ease-standard',
+      )}
+      style={{ opacity: shown ? 1 : 0, pointerEvents: shown ? 'auto' : 'none' }}
     >
       {active ? <CompressIcon /> : <ExpandIcon />}
-    </button>
+    </Button>
   )
 }

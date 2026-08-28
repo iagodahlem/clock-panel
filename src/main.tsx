@@ -5,6 +5,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { PanelCanvas } from './PanelCanvas'
+import './index.css'
 
 function requireRoot(): HTMLElement {
   const el = document.getElementById('root')

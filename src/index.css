@@ -1,0 +1,12 @@
+@import 'tailwindcss';
+
+/* theme-contract v1.1 -- the source of truth for every color, radius, font,
+   shadow, and motion token the control panel (registry/blocks/control-panel
+   in @ui) renders through. theme-defaults is the TOTAL layer, a complete
+   neutral theme on its own. */
+@import './styles/_defaults.css';
+
+/* Tailwind utility mapping for the tokens above (bg-surface, text-foreground,
+   border-border, ...) that the installed control panel components use. */
+@import './styles/tailwind.css';
+
